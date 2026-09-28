@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作業中の姿勢に関する実験</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --paper: #FFFFFF;
+    --ink: #1B2226;
+    --slate: #5B6770;
+    --line: #DDE3E6;
+    --teal: #0F7C75;
+    --teal-soft: #E8F3F2;
+    --amber: #B8690F;
+    --amber-soft: #FBF1E4;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body {
+    font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    font-size: 16px; line-height: 1.8;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 40px 24px 64px; }
+  h1 { font-size: 1.6rem; line-height: 1.4; margin: 0 0 8px; font-weight: 700; }
+  h2 { font-size: 1.15rem; margin: 32px 0 8px; font-weight: 700; }
+  p { margin: 0 0 12px; }
+  .lead { color: var(--slate); }
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* 手順の進み具合（実際に順番のある流れなので番号を使う） */
+  .steps { display: flex; gap: 6px; margin: 0 0 28px; padding: 0; list-style: none; font-size: .85rem; color: var(--slate); }
+  .steps li { flex: 1; border-top: 3px solid var(--line); padding-top: 6px; }
+  .steps li.done, .steps li.now { border-top-color: var(--teal); color: var(--ink); }
+  .steps li.now { font-weight: 700; }
+
+  ul.plain { padding-left: 1.2em; margin: 0 0 12px; }
+  ul.plain li { margin-bottom: 4px; }
+
+  .note { background: var(--teal-soft); border-left: 4px solid var(--teal); padding: 12px 16px; border-radius: 0 var(--radius) var(--radius) 0; margin: 16px 0; }
+  .alert { background: var(--amber-soft); border-left: 4px solid var(--amber); padding: 12px 16px; border-radius: 0 var(--radius) var(--radius) 0; margin: 16px 0; }
+
+  label.check { display: flex; gap: 10px; align-items: flex-start; margin: 20px 0; cursor: pointer; }
+  label.check input { width: 20px; height: 20px; margin-top: 5px; accent-color: var(--teal); }
+
+  button {
+    font: inherit; font-weight: 700; padding: 12px 22px; border-radius: var(--radius);
+    border: 2px solid var(--teal); background: var(--teal); color: #fff; cursor: pointer;
+  }
+  button.secondary { background: var(--paper); color: var(--teal); }
+  button:disabled { background: var(--line); border-color: var(--line); color: var(--slate); cursor: not-allowed; }
+  button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid #7FC4BE; outline-offset: 2px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+
+  /* カメラ確認 */
+  .cam-box { position: relative; width: 100%; max-width: 480px; aspect-ratio: 4 / 3; background: #EEF1F2; border-radius: var(--radius); overflow: hidden; margin: 12px 0; }
+  .cam-box video, .cam-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .cam-box .placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--slate); padding: 16px; text-align: center; }
+  /* 作業中はカメラ映像を本人に見せない（姿勢を意識させないため）。映像自体は解析のため動かし続ける */
+  .cam-hidden { position: fixed; left: 0; bottom: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+
+  .status { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0; }
+  .status .mark { font-weight: 700; }
+  .ok { color: var(--teal); }
+  .ng { color: var(--amber); }
+
+  .count { font-size: 3rem; font-weight: 700; color: var(--teal); text-align: center; margin: 8px 0; font-variant-numeric: tabular-nums; }
+
+  /* 作業画面 */
+  .task-bar { position: sticky; top: 0; background: var(--paper); border-bottom: 1px solid var(--line); z-index: 5; }
+  .task-bar .inner { max-width: 960px; margin: 0 auto; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .remain { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.2rem; }
+  .task-main { max-width: 960px; margin: 0 auto; padding: 20px 24px 48px; }
+  .video-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; }
+  .video-frame > div, .video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+  textarea { width: 100%; min-height: 200px; margin-top: 16px; padding: 14px; font: inherit; line-height: 1.7; border: 1px solid var(--line); border-radius: var(--radius); resize: vertical; color: var(--ink); }
+  .warn-badge { display: none; background: var(--amber); color: #fff; font-weight: 700; padding: 6px 14px; border-radius: var(--radius); }
+  .warn-badge.show { display: inline-block; }
+  .muted { color: var(--slate); font-size: .9rem; }
+  .pid { font-size: 1.4rem; font-weight: 700; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  @media (max-width: 560px) { .wrap { padding: 28px 16px 48px; } h1 { font-size: 1.35rem; } }
+</style>
+</head>
+<body>
+
+<!-- ================= 1. 説明と同意 ================= -->
+<section id="s-consent" class="screen active">
+  <div class="wrap">
+    <ol class="steps"><li class="now">説明と同意</li><li>準備</li><li>基準姿勢</li><li>作業</li><li>データ送付</li></ol>
+    <h1>作業中の姿勢に関する実験へのご協力のお願い</h1>
+    <p class="lead">長谷川理研究室 卒業研究（岡田晃斗）</p>
+
+    <h2>この実験でお願いすること</h2>
+    <p>講義動画を見ながら、その内容の要約をキーボードで入力していただきます。作業時間は約<span id="dur-text">60</span>分です。その間、パソコンのカメラで頭と肩の位置を測ります。</p>
+
+    <h2>記録するもの・しないもの</h2>
+    <ul class="plain">
+      <li>記録するのは、耳と肩の位置から計算した数値、入力した文字数、入力した要約の文章です。</li>
+      <li>カメラの映像は保存も送信もしません。計算はすべてあなたのパソコンの中で行われます。</li>
+      <li>氏名は記録しません。データは自動で振られる番号で管理します。</li>
+    </ul>
+
+    <h2>参加について</h2>
+    <ul class="plain">
+      <li>参加は自由です。途中でやめたくなったら、いつでもブラウザを閉じてかまいません。その場合データは残りません。</li>
+      <li>記録したデータは卒業研究の分析にのみ使用します。</li>
+    </ul>
+
+    <label class="check"><input type="checkbox" id="agree"><span>上記の説明を読み、実験への参加に同意します。</span></label>
+    <button id="btn-agree" disabled>同意して準備に進む</button>
+  </div>
+</section>
+
+<!-- ================= 2. 準備（環境とカメラ） ================= -->
+<section id="s-setup" class="screen">
+  <div class="wrap">
+    <ol class="steps"><li class="done">説明と同意</li><li class="now">準備</li><li>基準姿勢</li><li>作業</li><li>データ送付</li></ol>
+    <h1>作業の準備</h1>
+    <p>正しく測るために、次のように準備してください。</p>
+    <ul class="plain">
+      <li>椅子に深く腰掛け、背もたれに背中をつけ、足の裏全体を床につけてください。</li>
+      <li>画面から目までを40cm以上離してください。</li>
+      <li>イヤホンをつけ、パソコンやスマートフォンの通知を切ってください。</li>
+      <li>作業中はこのタブのまま、ほかのタブやアプリに切り替えず、席を立たないでください。</li>
+    </ul>
+
+    <h2>カメラの確認</h2>
+    <p>カメラを起動し、頭と両肩が映っていることを確認してください。ブラウザからカメラの使用を確認されたら「許可」を選んでください。</p>
+    <div class="cam-box" id="cam-box">
+      <div class="placeholder" id="cam-placeholder">カメラはまだ起動していません</div>
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="status">
+      <span class="mark" id="st-cam">―</span><span>カメラ</span>
+      <span class="mark" id="st-pose">―</span><span>両耳と両肩が映っているか</span>
+    </div>
+    <p class="muted" id="cam-msg"></p>
+    <div class="row">
+      <button id="btn-cam">カメラを起動する</button>
+      <button id="btn-to-calib" class="secondary" disabled>基準姿勢の登録へ進む</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 3. 基準姿勢の登録 ================= -->
+<section id="s-calib" class="screen">
+  <div class="wrap">
+    <ol class="steps"><li class="done">説明と同意</li><li class="done">準備</li><li class="now">基準姿勢</li><li>作業</li><li>データ送付</li></ol>
+    <h1>基準姿勢の登録</h1>
+    <p>準備で整えた良い姿勢のまま、画面の正面を見てください。「登録する」を押すと3秒かけて姿勢を記録します。その間は動かないでください。</p>
+    <div id="calib-cam-slot"></div>
+    <div class="count" id="calib-count"></div>
+    <p class="muted" id="calib-msg"></p>
+    <div class="row">
+      <button id="btn-calib">登録する</button>
+      <button id="btn-to-task" class="secondary" disabled>作業を始める</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 4. 作業 ================= -->
+<section id="s-task" class="screen">
+  <div class="task-bar"><div class="inner">
+    <span>残り時間 <span class="remain" id="remain">--:--</span></span>
+    <span class="warn-badge" id="warn-badge">姿勢を正してください</span>
+  </div></div>
+  <div class="task-main">
+    <div class="video-frame"><div id="yt"></div></div>
+    <p class="muted" id="video-msg"></p>
+    <textarea id="summary" placeholder="動画の内容を要約して、ここに入力してください"></textarea>
+    <div class="row">
+      <button id="btn-quit" class="secondary">作業を途中で終える</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 5. 終了とデータ送付 ================= -->
+<section id="s-end" class="screen">
+  <div class="wrap">
+    <ol class="steps"><li class="done">説明と同意</li><li class="done">準備</li><li class="done">基準姿勢</li><li class="done">作業</li><li class="now">データ送付</li></ol>
+    <h1>おつかれさまでした</h1>
+    <p>最後に、記録したデータをダウンロードして送ってください。</p>
+    <p>あなたの参加者番号：<span class="pid" id="pid"></span></p>
+    <div class="row"><button id="btn-download">データをダウンロードする</button></div>
+    <div class="note" id="send-note">
+      ダウンロードしたファイル（<span id="fname"></span>）を<span id="send-to">実験の案内に書かれた送付先</span>に送ってください。件名に参加者番号を入れてください。
+    </div>
+    <p class="muted">ファイルを送るまで、このページは閉じないでください。</p>
+  </div>
+</section>
+
+
+<script>
+// ============================================================
+// 実験の設定（URLの後ろにつけて変更できる）
+//   例: index.html?warn=on&delay=5&th=1.10&dur=60&v=XG8WEourY5E,別の動画ID&to=xxx@example.ac.jp
+//   warn : on で警告あり（既定は警告なし）
+//   delay: 警告までの秒数
+//   th   : 崩れとみなす比の閾値（基準姿勢を1としたとき）
+//   dur  : 作業時間（分）
+//   v    : 再生するYouTube動画のID（カンマ区切りで順番に再生）
+//   to   : データの送付先（終了画面に表示）
+// ============================================================
+const params = new URLSearchParams(location.search);
+const CONFIG = {
+  warn: params.get("warn") === "on",
+  delay: parseFloat(params.get("delay") || "5"),
+  threshold: parseFloat(params.get("th") || "1.10"),
+  durationMin: parseFloat(params.get("dur") || "60"),
+  videos: (params.get("v") || "XG8WEourY5E").split(",").map(s => s.trim()).filter(Boolean),
+  sendTo: params.get("to") || "",
+  sampleMs: 200,          // 記録の間隔（0.2秒）
+  visMin: 0.5,            // 耳・肩の検出の信頼度の下限
+  staleMs: 500            // これより古い検出結果は「未検出」扱い
+};
+const PID = "P" + Date.now().toString(36).slice(-4).toUpperCase() + Math.random().toString(36).slice(2, 4).toUpperCase();
+document.getElementById("dur-text").textContent = CONFIG.durationMin;
+
+// ---------- 画面切り替え ----------
+function show(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  window.scrollTo(0, 0);
+}
+
+// ---------- 1. 同意 ----------
+const agree = document.getElementById("agree");
+agree.addEventListener("change", () => { document.getElementById("btn-agree").disabled = !agree.checked; });
+document.getElementById("btn-agree").addEventListener("click", () => show("s-setup"));
+
+// ---------- 姿勢推定（MediaPipe Pose） ----------
+const camEl = document.getElementById("cam");
+const overlay = document.getElementById("overlay");
+const octx = overlay.getContext("2d");
+let camera = null;
+let latest = { ok: false, ear: NaN, sh: NaN, t: 0 };
+let poseOkSince = null;
+
+const pose = new Pose({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${f}` });
+pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+pose.onResults(onResults);
+
+function onResults(res) {
+  const w = camEl.videoWidth || 640, h = camEl.videoHeight || 480;
+  if (overlay.width !== w) { overlay.width = w; overlay.height = h; }
+  octx.clearRect(0, 0, w, h);
+  const lm = res.poseLandmarks;
+  const idx = [7, 8, 11, 12]; // 左耳・右耳・左肩・右肩
+  if (lm && idx.every(i => lm[i] && (lm[i].visibility ?? 1) >= CONFIG.visMin)) {
+    const d = (a, b) => Math.hypot((a.x - b.x) * w, (a.y - b.y) * h);
+    latest = { ok: true, ear: d(lm[7], lm[8]), sh: d(lm[11], lm[12]), t: performance.now() };
+    octx.fillStyle = "#0F7C75";
+    idx.forEach(i => { octx.beginPath(); octx.arc(lm[i].x * w, lm[i].y * h, 6, 0, Math.PI * 2); octx.fill(); });
+    if (poseOkSince === null) poseOkSince = performance.now();
+  } else {
+    latest.ok = false;
+    poseOkSince = null;
+  }
+  updateSetupStatus();
+}
+
+function poseFresh() { return latest.ok && performance.now() - latest.t < CONFIG.staleMs; }
+
+function setMark(el, ok, text) { el.textContent = text; el.className = "mark " + (ok ? "ok" : "ng"); }
+
+function updateSetupStatus() {
+  const st = document.getElementById("st-pose");
+  const stable = poseOkSince !== null && performance.now() - poseOkSince > 1000;
+  setMark(st, stable, stable ? "OK" : "未確認");
+  document.getElementById("btn-to-calib").disabled = !stable;
+}
+
+// ---------- 2. カメラ起動 ----------
+document.getElementById("btn-cam").addEventListener("click", async () => {
+  const msg = document.getElementById("cam-msg");
+  if (!window.isSecureContext) {
+    msg.textContent = "このページはhttpsで開かないとカメラを使えません。案内されたURLから開き直してください。";
+    return;
+  }
+  try {
+    document.getElementById("btn-cam").disabled = true;
+    msg.textContent = "起動しています。初回は姿勢推定の準備に数十秒かかることがあります。";
+    camera = new Camera(camEl, { onFrame: async () => { await pose.send({ image: camEl }); }, width: 640, height: 480 });
+    await camera.start();
+    document.getElementById("cam-placeholder").style.display = "none";
+    setMark(document.getElementById("st-cam"), true, "OK");
+    msg.textContent = "頭と両肩が映るように、座る位置やパソコンの角度を調整してください。";
+  } catch (e) {
+    document.getElementById("btn-cam").disabled = false;
+    setMark(document.getElementById("st-cam"), false, "失敗");
+    msg.textContent = "カメラを起動できませんでした。ブラウザのアドレスバー左のアイコンからカメラを「許可」にし、ほかのアプリがカメラを使っていないか確認してから、もう一度押してください。（" + e.name + "）";
+  }
+});
+
+document.getElementById("btn-to-calib").addEventListener("click", () => {
+  document.getElementById("calib-cam-slot").appendChild(document.getElementById("cam-box"));
+  show("s-calib");
+});
+
+// ---------- 3. 基準姿勢の登録（3秒間の中央値） ----------
+let baseline = null;
+const median = a => { const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+document.getElementById("btn-calib").addEventListener("click", () => {
+  const btn = document.getElementById("btn-calib");
+  const cnt = document.getElementById("calib-count");
+  const msg = document.getElementById("calib-msg");
+  btn.disabled = true; msg.textContent = "";
+  const ears = [], shs = [];
+  const start = performance.now();
+  const timer = setInterval(() => {
+    if (poseFresh()) { ears.push(latest.ear); shs.push(latest.sh); }
+    const left = 3 - (performance.now() - start) / 1000;
+    cnt.textContent = left > 0 ? Math.ceil(left) : "";
+    if (left <= 0) {
+      clearInterval(timer);
+      btn.disabled = false;
+      if (ears.length < 10) {
+        msg.textContent = "両耳と両肩をうまく捉えられませんでした。頭と肩がはっきり映る位置に座り直し、もう一度「登録する」を押してください。";
+        return;
+      }
+      const e = median(ears), s = median(shs);
+      baseline = { ear: e, sh: s, ratio: e / s, n: ears.length };
+      msg.textContent = "登録しました。この姿勢が基準になります。準備ができたら「作業を始める」を押してください。";
+      btn.textContent = "登録し直す";
+      document.getElementById("btn-to-task").disabled = false;
+    }
+  }, 50);
+});
+
+// ---------- YouTube ----------
+let player = null, ytReady = false, videoIndex = 0, videosFinished = false;
+(function loadYT() {
+  const s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+})();
+window.onYouTubeIframeAPIReady = () => {
+  player = new YT.Player("yt", {
+    playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+    events: {
+      onReady: () => { ytReady = true; },
+      onStateChange: e => {
+        if (e.data === YT.PlayerState.ENDED) {
+          videoIndex++;
+          if (videoIndex < CONFIG.videos.length) player.loadVideoById(CONFIG.videos[videoIndex]);
+          else {
+            videosFinished = true;
+            document.getElementById("video-msg").textContent = "動画はすべて終わりました。残りの時間は、要約の見直しや書き足しをしてください。";
+          }
+        }
+      }
+    }
+  });
+};
+function videoTime() {
+  try { return player && player.getCurrentTime ? player.getCurrentTime() : NaN; } catch (e) { return NaN; }
+}
+
+// ---------- 4. 作業と記録 ----------
+const summary = document.getElementById("summary");
+let charCount = 0, keyCount = 0;
+summary.addEventListener("input", () => { charCount = summary.value.length; });
+summary.addEventListener("keydown", () => { keyCount++; });
+
+let logs = [];
+let startMs = null, sampler = null, clock = null, running = false;
+let badSince = null, warningActive = false, warnCount = 0;
+
+document.getElementById("btn-to-task").addEventListener("click", () => {
+  if (!baseline) return;
+  // 作業中はカメラ映像を見せない（姿勢を意識させないため）
+  document.getElementById("cam-box").classList.add("cam-hidden");
+  show("s-task");
+  startTask();
+});
+
+function startTask() {
+  running = true;
+  startMs = Date.now();
+  logs = []; charCount = 0; keyCount = 0; summary.value = "";
+  if (ytReady) player.loadVideoById(CONFIG.videos[0]);
+  else document.getElementById("video-msg").textContent = "動画の読み込みに時間がかかっています。少し待っても始まらない場合は、ページを開き直してください。";
+  summary.focus();
+  sampler = setInterval(sample, CONFIG.sampleMs);
+  clock = setInterval(tick, 250);
+  tick();
+}
+
+function tick() {
+  const leftMs = CONFIG.durationMin * 60000 - (Date.now() - startMs);
+  if (leftMs <= 0) { endTask(false); return; }
+  const m = Math.floor(leftMs / 60000), s = Math.floor((leftMs % 60000) / 1000);
+  document.getElementById("remain").textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  // 動画APIの準備が遅れた場合に後から再生を始める
+  if (ytReady && player.getPlayerState && player.getPlayerState() === -1 && videoIndex === 0 && !videosFinished) {
+    player.loadVideoById(CONFIG.videos[0]);
+    document.getElementById("video-msg").textContent = "";
+  }
+}
+
+function sample() {
+  const now = Date.now();
+  const fresh = poseFresh();
+  const ratio = fresh ? (latest.ear / latest.sh) / baseline.ratio : NaN;
+  const bad = fresh && ratio > CONFIG.threshold;
+
+  if (CONFIG.warn) {
+    if (bad) {
+      if (badSince === null) badSince = now;
+      if ((now - badSince) / 1000 >= CONFIG.delay && !warningActive) {
+        warningActive = true; warnCount++;
+        document.getElementById("warn-badge").classList.add("show");
+        if ("speechSynthesis" in window) {
+          const u = new SpeechSynthesisUtterance("姿勢を正してください");
+          u.lang = "ja-JP"; speechSynthesis.speak(u);
+        }
+      }
+    } else {
+      badSince = null;
+      if (warningActive) { warningActive = false; document.getElementById("warn-badge").classList.remove("show"); }
+    }
+  }
+
+  logs.push({
+    ts: stamp(new Date(now)),
+    el: now - startMs,
+    ear: fresh ? latest.ear : NaN,
+    sh: fresh ? latest.sh : NaN,
+    ratio: ratio,
+    det: fresh ? 1 : 0,
+    bad: bad ? 1 : 0,
+    warn: warningActive ? 1 : 0,
+    chars: charCount,
+    keys: keyCount,
+    vi: videoIndex,
+    vt: videoTime(),
+    hid: document.hidden ? 1 : 0
+  });
+}
+
+function stamp(d) {
+  const p = (n, k = 2) => String(n).padStart(k, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+document.getElementById("btn-quit").addEventListener("click", () => {
+  if (confirm("作業を途中で終えますか？ここまでのデータはダウンロードできます。")) endTask(true);
+});
+
+let quitEarly = false;
+function endTask(early) {
+  if (!running) return;
+  running = false; quitEarly = early;
+  clearInterval(sampler); clearInterval(clock);
+  try { player && player.pauseVideo && player.pauseVideo(); } catch (e) {}
+  try { camera && camera.stop(); } catch (e) {}
+  const stream = camEl.srcObject; if (stream) stream.getTracks().forEach(t => t.stop());
+  document.getElementById("warn-badge").classList.remove("show");
+  document.getElementById("pid").textContent = PID;
+  document.getElementById("fname").textContent = fileName();
+  if (CONFIG.sendTo) document.getElementById("send-to").textContent = CONFIG.sendTo;
+  show("s-end");
+}
+
+// ---------- 5. CSVの作成とダウンロード ----------
+let downloaded = false;
+function fileName() {
+  const d = new Date(startMs), p = n => String(n).padStart(2, "0");
+  return `posture_${PID}_${CONFIG.warn ? "ON" : "OFF"}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.csv`;
+}
+const num = (v, k) => (Number.isFinite(v) ? v.toFixed(k) : "");
+const clean = s => String(s).replace(/[\r\n]+/g, " ").replace(/,/g, "，");
+
+function buildCSV() {
+  const meta = [
+    ["Subject", PID],
+    ["Condition", CONFIG.warn ? "警告あり(ON)" : "警告なし(OFF)"],
+    ["WarnDelaySec", CONFIG.warn ? CONFIG.delay : ""],
+    ["Threshold", CONFIG.threshold],
+    ["Metric", "Ratio = (両耳間隔/肩幅) / 基準姿勢の(両耳間隔/肩幅)"],
+    ["BaselineEar", baseline.ear.toFixed(2)],
+    ["BaselineShoulder", baseline.sh.toFixed(2)],
+    ["BaselineRatio", baseline.ratio.toFixed(4)],
+    ["SampleMs", CONFIG.sampleMs],
+    ["PlannedMin", CONFIG.durationMin],
+    ["QuitEarly", quitEarly ? 1 : 0],
+    ["WarnCount", warnCount],
+    ["Videos", CONFIG.videos.join(" ")],
+    ["Screen", `${screen.width}x${screen.height}`],
+    ["UserAgent", clean(navigator.userAgent)],
+    ["TotalChars", charCount],
+    ["SummaryText", clean(summary.value)],
+    ["ExportedAt", stamp(new Date())]
+  ];
+  let csv = meta.map(([k, v]) => `# ${k},${v}`).join("\n") + "\n";
+  csv += "Timestamp,Elapsed_ms,Ear_Dist,Shoulder_Dist,Ratio,Detected,Is_Bad,Is_Warning_Active,Char_Count,Key_Count,Video_Index,Video_Time,Tab_Hidden\n";
+  csv += logs.map(r => [r.ts, r.el, num(r.ear, 2), num(r.sh, 2), num(r.ratio, 4), r.det, r.bad, r.warn, r.chars, r.keys, r.vi, num(r.vt, 1), r.hid].join(",")).join("\n") + "\n";
+  return csv;
+}
+
+document.getElementById("btn-download").addEventListener("click", () => {
+  const blob = new Blob(["\uFEFF" + buildCSV()], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName();
+  document.body.appendChild(a); a.click(); a.remove();
+  downloaded = true;
+});
+
+// 作業中・送付前にページを閉じようとしたら確認する
+window.addEventListener("beforeunload", e => {
+  if (running || (logs.length > 0 && !downloaded)) { e.preventDefault(); e.returnValue = ""; }
+});
+</script>
+</body>
+</html>
