@@ -70,6 +70,10 @@
   .ok { color: var(--teal); }
   .ng { color: var(--amber); }
 
+  .field { margin: 20px 0; }
+  .field label { display: block; font-weight: 700; margin-bottom: 6px; }
+  .field input[type=number] { font: inherit; width: 7em; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); }
+  .field input:disabled { background: #F3F5F6; color: var(--slate); }
   .count { font-size: 3rem; font-weight: 700; color: var(--teal); text-align: center; margin: 8px 0; font-variant-numeric: tabular-nums; }
 
   /* 作業画面 */
@@ -91,8 +95,40 @@
 </head>
 <body>
 
+<!-- ================= 0. 実験条件の設定（実験者用） ================= -->
+<section id="s-settings" class="screen active">
+  <div class="wrap">
+    <h1>実験条件の設定</h1>
+    <p class="lead">実験者が設定してから、参加者に画面を渡してください。</p>
+
+    <h2>警告</h2>
+    <label class="check"><input type="radio" name="warn" value="off" id="warn-off"><span>警告なし（姿勢が崩れても知らせない）</span></label>
+    <label class="check"><input type="radio" name="warn" value="on" id="warn-on"><span>警告あり（崩れが続くと音声と画面で知らせる）</span></label>
+
+    <div class="field">
+      <label for="in-delay">警告までの秒数</label>
+      <input type="number" id="in-delay" min="0" max="600" step="0.5"> 秒
+      <p class="muted">姿勢の崩れがこの秒数続いたら警告します。警告なしのときは使いません。</p>
+    </div>
+
+    <div class="field">
+      <label for="in-dur">作業時間</label>
+      <input type="number" id="in-dur" min="1" max="180" step="1"> 分
+    </div>
+
+    <div class="field">
+      <label for="in-th">崩れとみなす閾値</label>
+      <input type="number" id="in-th" min="1.01" max="2" step="0.01">
+      <p class="muted">基準姿勢を1としたときの値です。この値を超えると「崩れ」と判定します。</p>
+    </div>
+
+    <p class="alert" id="set-msg" style="display:none"></p>
+    <div class="row"><button id="btn-settings">この条件で始める</button></div>
+  </div>
+</section>
+
 <!-- ================= 1. 説明と同意 ================= -->
-<section id="s-consent" class="screen active">
+<section id="s-consent" class="screen">
   <div class="wrap">
     <ol class="steps"><li class="now">説明と同意</li><li>準備</li><li>基準姿勢</li><li>作業</li><li>データ送付</li></ol>
     <h1>作業中の姿勢に関する実験へのご協力のお願い</h1>
@@ -231,6 +267,42 @@ function show(id) {
   document.getElementById(id).classList.add("active");
   window.scrollTo(0, 0);
 }
+
+// ---------- 0. 実験条件の設定 ----------
+// URLの値を初期値として入れておく。lock=1 のときは設定画面を飛ばす（遠隔配布用）
+const inDelay = document.getElementById("in-delay");
+const inDur = document.getElementById("in-dur");
+const inTh = document.getElementById("in-th");
+document.getElementById(CONFIG.warn ? "warn-on" : "warn-off").checked = true;
+inDelay.value = CONFIG.delay;
+inDur.value = CONFIG.durationMin;
+inTh.value = CONFIG.threshold;
+
+function syncDelayField() { inDelay.disabled = !document.getElementById("warn-on").checked; }
+document.querySelectorAll('input[name="warn"]').forEach(r => r.addEventListener("change", syncDelayField));
+syncDelayField();
+
+document.getElementById("btn-settings").addEventListener("click", () => {
+  const warn = document.getElementById("warn-on").checked;
+  const delay = parseFloat(inDelay.value);
+  const dur = parseFloat(inDur.value);
+  const th = parseFloat(inTh.value);
+  const errors = [];
+  if (warn && !(delay >= 0 && delay <= 600)) errors.push("警告までの秒数は0〜600秒で入力してください。");
+  if (!(dur >= 1 && dur <= 180)) errors.push("作業時間は1〜180分で入力してください。");
+  if (!(th > 1 && th <= 2)) errors.push("閾値は1より大きく2以下の値で入力してください。");
+  const msg = document.getElementById("set-msg");
+  if (errors.length) { msg.textContent = errors.join(" "); msg.style.display = "block"; return; }
+  msg.style.display = "none";
+  CONFIG.warn = warn;
+  CONFIG.delay = warn ? delay : CONFIG.delay;
+  CONFIG.durationMin = dur;
+  CONFIG.threshold = th;
+  document.getElementById("dur-text").textContent = CONFIG.durationMin;
+  show("s-consent");
+});
+
+if (params.get("lock") === "1") show("s-consent");
 
 // ---------- 1. 同意 ----------
 const agree = document.getElementById("agree");
