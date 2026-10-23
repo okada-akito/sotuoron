@@ -114,14 +114,14 @@
       <p class="muted">同じ人には毎回同じ書き方で入力してください（ファイル名とCSVに入ります）。</p>
     </div>
 
-    <h2>警告</h2>
-    <label class="check"><input type="radio" name="warn" value="0" id="warn-0"><span>警告なし<br><span class="muted">終了時に、この人に合わせた警告までの時間を計算します</span></span></label>
-    <label class="check"><input type="radio" name="warn" value="1" id="warn-1"><span>警告あり</span></label>
+    <h2>実験</h2>
+    <label class="check"><input type="radio" name="exp" value="1" id="exp-1"><span>実験1<br><span class="muted">終了時に、実験2で使う秒数を計算します</span></span></label>
+    <label class="check"><input type="radio" name="exp" value="2" id="exp-2"><span>実験2</span></label>
 
     <div class="field" id="delay-field">
-      <label for="in-delay">警告までの秒数</label>
+      <label for="in-delay">実験2の秒数</label>
       <input type="number" id="in-delay" min="0.1" max="600" step="0.1"> 秒
-      <p class="muted">警告なしの回の終了画面・CSVに出た「この人に合わせた警告までの時間」を入れてください。</p>
+      <p class="muted">実験1の終了画面・CSVに出た「実験2で使う秒数」を入れてください。</p>
     </div>
 
     <details style="margin:24px 0">
@@ -263,12 +263,13 @@
     </div>
     <p class="muted">ファイルを送るまで、このページは閉じないでください。</p>
 
-    <div id="rec-box" style="display:none;margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
-      <h2 style="margin-top:0">実験者用：この人に合わせた警告までの時間</h2>
+    <details id="rec-box" style="display:none;margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
+      <summary style="cursor:pointer;color:var(--slate)">実験者用</summary>
+      <h2>実験2で使う秒数</h2>
       <p class="pid" id="rec-delay"></p>
       <p class="muted" id="rec-detail"></p>
-      <div class="row"><a id="rec-link" class="btn-link" target="_blank" rel="noopener">この時間で「警告あり」の回を準備する（新しいタブ）</a></div>
-    </div>
+      <div class="row"><a id="rec-link" class="btn-link" target="_blank" rel="noopener">この秒数で実験2を準備する（新しいタブ）</a></div>
+    </details>
   </div>
 </section>
 
@@ -276,10 +277,11 @@
 <script>
 // ============================================================
 // 実験の設定（設定画面で選ぶ。URLの後ろにつけると初期値になる）
-//   例: index.html?name=岡田晃斗&warn=1&delay=8.4&lock=1
+//   例: index.html?name=岡田晃斗&exp=2&delay=8.4&lock=1
 //   name : 名前
-//   warn : 0（警告なし）/ 1（警告あり）
-//   delay: 警告までの秒数（警告ありのときだけ使う）
+//   exp  : 1（実験1＝警告なし。終了時に実験2の秒数を計算）/ 2（実験2＝警告あり）
+//          参加者の目に触れるところには「警告なし／あり」を出さない
+//   delay: 実験2で警告するまでの秒数（実験2のときだけ使う）
 //   th   : 崩れとみなす比の閾値（基準姿勢を1としたとき）
 //   dur  : 作業時間（分）
 //   v    : 再生するYouTube動画のID（カンマ区切りで順番に再生）
@@ -287,16 +289,17 @@
 //   lock : 1 のとき設定画面を飛ばす（遠隔配布用）
 // ============================================================
 const params = new URLSearchParams(location.search);
+// 画面・ファイル名には実験1／実験2とだけ出す（実験1＝警告なし、実験2＝警告あり）
 const WARN_INFO = {
-  false: { code: "NOWARN", label: "警告なし" },
-  true:  { code: "WARN",   label: "警告あり" }
+  false: { code: "EXP1", label: "実験1" },
+  true:  { code: "EXP2", label: "実験2" }
 };
 // 「この人に合わせた警告までの時間」の決め方（personal_delay.py と同じ）
-const REC = { pct: 90, minEpisodes: 10, fallback: 5.0, min: 2.0, max: 60.0 };
+const REC = { pct: 90, minEpisodes: 10, fallback: 5.0, min: 2.0, max: 30.0 };  // 上限30秒＝先行研究（ErgoAssist）の一律30秒より甘くしない
 // ファイル名に使えない文字だけ取り除く（日本語の名前はそのまま使える）
 const cleanName = s => String(s || "").trim().replace(/[\\/:*?"<>|,\s]+/g, "_").slice(0, 30);
 const CONFIG = {
-  warn: params.get("warn") === "1",
+  warn: params.get("exp") === "2",
   delay: parseFloat(params.get("delay") || ""),
   threshold: parseFloat(params.get("th") || "1.10"),
   durationMin: parseFloat(params.get("dur") || "20"),
@@ -324,20 +327,20 @@ const inDur = document.getElementById("in-dur");
 const inTh = document.getElementById("in-th");
 const inVideos = document.getElementById("in-videos");
 inName.value = params.get("name") || "";
-if (params.get("warn") === "0" || params.get("warn") === "1") document.getElementById("warn-" + params.get("warn")).checked = true;
+if (params.get("exp") === "1" || params.get("exp") === "2") document.getElementById("exp-" + params.get("exp")).checked = true;
 inDelay.value = Number.isFinite(CONFIG.delay) ? CONFIG.delay : "";
 inDur.value = CONFIG.durationMin;
 inTh.value = CONFIG.threshold;
 inVideos.value = CONFIG.videos.join(",");
 
-const selectedWarn = () => (document.querySelector('input[name="warn"]:checked') || {}).value;
-function syncDelayField() { document.getElementById("delay-field").style.display = selectedWarn() === "1" ? "block" : "none"; }
-document.querySelectorAll('input[name="warn"]').forEach(r => r.addEventListener("change", syncDelayField));
+const selectedExp = () => (document.querySelector('input[name="exp"]:checked') || {}).value;
+function syncDelayField() { document.getElementById("delay-field").style.display = selectedExp() === "2" ? "block" : "none"; }
+document.querySelectorAll('input[name="exp"]').forEach(r => r.addEventListener("change", syncDelayField));
 syncDelayField();
 
 document.getElementById("btn-settings").addEventListener("click", () => {
-  const w = selectedWarn();
-  const warn = w === "1";
+  const e = selectedExp();
+  const warn = e === "2";
   const delay = parseFloat(inDelay.value);
   const dur = parseFloat(inDur.value);
   const th = parseFloat(inTh.value);
@@ -345,8 +348,8 @@ document.getElementById("btn-settings").addEventListener("click", () => {
   const name = cleanName(inName.value);
   const errors = [];
   if (!name) errors.push("名前を入力してください。");
-  if (w !== "0" && w !== "1") errors.push("警告のあり・なしを選んでください。");
-  if (warn && !(delay > 0 && delay <= 600)) errors.push("警告までの秒数を入力してください（0より大きく600秒以下）。");
+  if (e !== "1" && e !== "2") errors.push("実験1か実験2を選んでください。");
+  if (warn && !(delay > 0 && delay <= 600)) errors.push("実験2の秒数を入力してください（0より大きく600秒以下）。");
   if (!(dur >= 1 && dur <= 180)) errors.push("作業時間は1〜180分で入力してください。");
   if (!(th > 1 && th <= 2)) errors.push("閾値は1より大きく2以下の値で入力してください。");
   if (!videos.length) errors.push("動画のIDを1つ以上入力してください。");
@@ -367,8 +370,8 @@ if (params.get("lock") === "1") {
   // 配布用URLの書き間違いで、意図しない条件のまま実験が進むのを防ぐ
   const urlErrors = [];
   if (!PID) urlErrors.push("name（名前）が指定されていません。");
-  if (params.get("warn") !== "0" && params.get("warn") !== "1") urlErrors.push("warn（警告のあり・なし）が 0 か 1 で指定されていません。");
-  if (CONFIG.warn && !(CONFIG.delay > 0 && CONFIG.delay <= 600)) urlErrors.push("警告ありなのに delay（警告までの秒数）が正しく指定されていません。");
+  if (params.get("exp") !== "1" && params.get("exp") !== "2") urlErrors.push("exp（実験1か2）が 1 か 2 で指定されていません。");
+  if (CONFIG.warn && !(CONFIG.delay > 0 && CONFIG.delay <= 600)) urlErrors.push("実験2なのに delay（秒数）が正しく指定されていません。");
   if (!(CONFIG.threshold > 1 && CONFIG.threshold <= 2)) urlErrors.push("th（閾値）が正しくありません。");
   if (urlErrors.length) {
     const msg = document.getElementById("set-msg");
@@ -679,13 +682,13 @@ function showRecommended() {
   document.getElementById("rec-delay").textContent = `${rec.delay} 秒`;
   const lines = [
     `崩れの回数 ${rec.n} 回（中央値 ${num(rec.median, 1) || "-"} 秒・最長 ${num(rec.longest, 1) || "-"} 秒）`,
-    `この時間なら警告は1時間あたり約 ${num(rec.perHour, 1) || "-"} 回（今回のデータで換算）`,
+    `この秒数なら警告は1時間あたり約 ${num(rec.perHour, 1) || "-"} 回（今回のデータで換算）`,
     `姿勢を検出できた割合 ${rec.detectedPct.toFixed(0)}%`
   ];
   if (rec.note) lines.push("※" + rec.note);
   if (rec.detectedPct < 80) lines.push("※検出できなかった時間が多いため、カメラの映り方を確認してください");
   document.getElementById("rec-detail").innerHTML = lines.map(s => s.replace(/[<>&]/g, "")).join("<br>");
-  const q = new URLSearchParams({ name: PID, warn: "1", delay: rec.delay, th: CONFIG.threshold, dur: CONFIG.durationMin });
+  const q = new URLSearchParams({ name: PID, exp: "2", delay: rec.delay, th: CONFIG.threshold, dur: CONFIG.durationMin });
   document.getElementById("rec-link").href = location.pathname + "?" + q.toString();
   document.getElementById("rec-box").style.display = "block";
 }
@@ -740,10 +743,11 @@ const clean = s => String(s).replace(/[\r\n]+/g, " ").replace(/,/g, "，");
 function buildCSV() {
   const meta = [
     ["Name", PID],
-    ["Warning", WARN_INFO[CONFIG.warn].label],
+    ["Experiment", WARN_INFO[CONFIG.warn].label],
     ["CondCode", WARN_INFO[CONFIG.warn].code],
+    ["Warning", CONFIG.warn ? 1 : 0],   // 解析用：0＝警告なし（実験1）、1＝警告あり（実験2）
     ["WarnDelaySec", CONFIG.warn ? CONFIG.delay : ""],
-    // この人に合わせた警告までの時間（警告なしの回だけ。警告ありの回は空欄）
+    // 実験2で使う秒数（実験1のときだけ。実験2では空欄）
     ["RecommendedDelaySec", rec ? rec.delay : ""],
     ["RecPercentile", rec ? REC.pct : ""],
     ["RecRawP90Sec", rec ? num(rec.raw, 2) : ""],
