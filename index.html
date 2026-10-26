@@ -114,22 +114,31 @@
       <p class="muted">同じ人には毎回同じ書き方で入力してください（ファイル名とCSVに入ります）。</p>
     </div>
 
-    <h2>実験</h2>
-    <label class="check"><input type="radio" name="exp" value="1" id="exp-1"><span>実験1<br><span class="muted">終了時に、実験2で使う秒数を計算します</span></span></label>
-    <label class="check"><input type="radio" name="exp" value="2" id="exp-2"><span>実験2</span></label>
+    <h2>何回目か</h2>
+    <label class="check"><input type="radio" name="round" value="1" id="round-1"><span>第1回</span></label>
+    <label class="check"><input type="radio" name="round" value="2" id="round-2"><span>第2回</span></label>
+    <label class="check"><input type="radio" name="round" value="3" id="round-3"><span>第3回</span></label>
+    <label class="check"><input type="radio" name="round" value="4" id="round-4"><span>第4回</span></label>
+    <p class="muted">第1回は警告なし、第2〜4回は警告ありで自動的に行います（参加者の画面には「第○回」とだけ出ます）。</p>
 
     <div class="field" id="delay-field">
-      <label for="in-delay">実験2の秒数</label>
+      <label for="in-delay">この回の秒数</label>
       <input type="number" id="in-delay" min="0.1" max="600" step="0.1"> 秒
-      <p class="muted">実験1の終了画面・CSVに出た「実験2で使う秒数」を入れてください。</p>
+      <p class="muted">前の回の終了画面（実験者用）に出た「次の回で使う秒数」を入れてください。</p>
+    </div>
+
+    <div class="field">
+      <label for="in-order">動画の順番パターン</label>
+      <select id="in-order" style="font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);"></select>
+      <p class="muted">参加者ごとに1〜4を順に割り当て、その人には4回とも同じパターンを選んでください。パターンと回から、使う動画が自動で決まります。</p>
     </div>
 
     <details style="margin:24px 0">
       <summary style="cursor:pointer;color:var(--slate)">その他の設定（通常は変えません）</summary>
       <div class="field">
-        <label for="in-videos">動画のID</label>
+        <label for="in-videos">動画のID（入れたときだけ、動画セットの代わりに使う）</label>
         <input type="text" id="in-videos" style="font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);">
-        <p class="muted">YouTubeのURLの「v=」の後ろの文字列です。複数ある場合はカンマで区切ると順番に再生します。慣れを防ぐため、回ごとに別の動画にしてください。</p>
+        <p class="muted">YouTubeのURLの「v=」の後ろの文字列です。複数ある場合はカンマで区切ると順番に再生します。通常は空欄のままにします。</p>
       </div>
       <div class="field">
         <label for="in-dur">作業時間</label>
@@ -263,12 +272,18 @@
     </div>
     <p class="muted">ファイルを送るまで、このページは閉じないでください。</p>
 
-    <details id="rec-box" style="display:none;margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
+    <details id="rec-box" style="margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
       <summary style="cursor:pointer;color:var(--slate)">実験者用</summary>
-      <h2>実験2で使う秒数</h2>
+      <div class="field" id="prev-field">
+        <label for="in-prev">これまでの回のCSVを選ぶ（第2回以降。複数選べます）</label>
+        <input type="file" id="in-prev" accept=".csv,text/csv" multiple>
+        <p class="muted">前の回までのデータもまとめて、次の回の秒数を計算し直します。選んでから「データをダウンロードする」を押すと、計算結果もCSVに入ります。</p>
+        <p class="muted" id="prev-msg"></p>
+      </div>
+      <h2 id="rec-title">次の回で使う秒数</h2>
       <p class="pid" id="rec-delay"></p>
       <p class="muted" id="rec-detail"></p>
-      <div class="row"><a id="rec-link" class="btn-link" target="_blank" rel="noopener">この秒数で実験2を準備する（新しいタブ）</a></div>
+      <div class="row"><a id="rec-link" class="btn-link" target="_blank" rel="noopener">次の回を準備する（新しいタブ）</a></div>
     </details>
   </div>
 </section>
@@ -277,39 +292,63 @@
 <script>
 // ============================================================
 // 実験の設定（設定画面で選ぶ。URLの後ろにつけると初期値になる）
-//   例: index.html?name=岡田晃斗&exp=2&delay=8.4&lock=1
+//   例: index.html?name=岡田晃斗&round=2&delay=8.4&order=1&lock=1
+//   order: 動画の順番パターン（1〜4）。パターンと回から動画が決まる
 //   name : 名前
-//   exp  : 1（実験1＝警告なし。終了時に実験2の秒数を計算）/ 2（実験2＝警告あり）
-//          参加者の目に触れるところには「警告なし／あり」を出さない
-//   delay: 実験2で警告するまでの秒数（実験2のときだけ使う）
+//   round: 何回目か（1〜4）。第1回＝警告なし、第2〜4回＝警告あり（なし→あり→あり→あり）
+//          参加者の目に触れるところには「警告なし／あり」を出さず「第○回」とだけ出す
+//   delay: この回で警告するまでの秒数（第2〜4回で使う）
+//   v    : 動画IDを直接指定するとき（カンマ区切り。指定すると動画セットの代わりに使う）
 //   th   : 崩れとみなす比の閾値（基準姿勢を1としたとき）
 //   dur  : 作業時間（分）
-//   v    : 再生するYouTube動画のID（カンマ区切りで順番に再生）
 //   to   : データの送付先（終了画面に表示）
 //   lock : 1 のとき設定画面を飛ばす（遠隔配布用）
 // ============================================================
 const params = new URLSearchParams(location.search);
-// 画面・ファイル名には実験1／実験2とだけ出す（実験1＝警告なし、実験2＝警告あり）
-const WARN_INFO = {
-  false: { code: "EXP1", label: "実験1" },
-  true:  { code: "EXP2", label: "実験2" }
+const ROUND_WARN = { 1: false, 2: true, 3: true, 4: true };    // なし→あり→あり→あり
+// 動画A〜D（MIXI 2025年 新卒向け技術研修の講義動画から、約30分の区間を切り出して再生する）
+// 書き方は「動画ID@開始-終了」（下の parseEntry の説明を参照）。作業時間で打ち切られる
+// 【要確認】埋め込み再生できるか・広告の有無を実際に再生して確認すること
+const VIDEO_SETS = {
+  A: ["DTY3RBkXQBA@1:16:45-1:48:39"],   // Git 研修 Basic・チーム開発と Git / GitHub（31分54秒）
+  B: ["is4ZKF9CH7o@7:01-37:45"],         // データベース研修 DB基礎（30分44秒）
+  C: ["9ddk4LoyitY@25:15-1:01:10"],      // WEB フロントエンド研修（35分55秒）
+  D: ["ByIw8LQgnGw@3:49-45:45"]          // テスト・設計研修（41分56秒）
 };
-// 「この人に合わせた警告までの時間」の決め方（personal_delay.py と同じ）
-const REC = { pct: 90, minEpisodes: 10, fallback: 5.0, min: 2.0, max: 30.0 };  // 上限30秒＝先行研究（ErgoAssist）の一律30秒より甘くしない
+// 動画の順番パターン（ウィリアムズ方陣：どの動画も各回に1度ずつ、どの動画の直後にも他の動画が1度ずつ来る）
+const ORDERS = { 1: "ABDC", 2: "BCAD", 3: "CDBA", 4: "DACB" };
+// 次の回の秒数の決め方（personal_delay.py と同じ）
+//   崩れの長さのうち「9割がこの長さ以内に収まる」最短の長さ。警告で途中で直された崩れは
+//   「少なくともその長さまでは続いた」として数える（カプラン・マイヤー法）
+const REC = { q: 0.9, minEpisodes: 10, fallback: 5.0, min: 2.0, max: 30.0 };  // 上限30秒＝先行研究（ErgoAssist）の一律30秒より甘くしない
 // ファイル名に使えない文字だけ取り除く（日本語の名前はそのまま使える）
 const cleanName = s => String(s || "").trim().replace(/[\\/:*?"<>|,\s]+/g, "_").slice(0, 30);
+const parseOrder = v => (["1", "2", "3", "4"].includes(String(v)) ? Number(v) : null);
+const parseRound = v => (["1", "2", "3", "4"].includes(String(v)) ? Number(v) : null);
 const CONFIG = {
-  warn: params.get("exp") === "2",
+  round: parseRound(params.get("round")),
+  warn: false,
   delay: parseFloat(params.get("delay") || ""),
+  order: parseOrder(params.get("order")),
+  videoSet: "",
   threshold: parseFloat(params.get("th") || "1.10"),
-  durationMin: parseFloat(params.get("dur") || "20"),
-  videos: (params.get("v") || "XG8WEourY5E").split(",").map(s => s.trim()).filter(Boolean),
+  durationMin: parseFloat(params.get("dur") || "30"),
+  videos: [],
+  videoOverride: (params.get("v") || "").split(",").map(s => s.trim()).filter(Boolean),
   sendTo: params.get("to") || "",
   sampleMs: 200,          // 記録の間隔（0.2秒）
   gapMs: 1000,            // これより短い途切れは同じ崩れとみなす（personal_delay.py の --gap と同じ）
   visMin: 0.5,            // 耳・肩の検出の信頼度の下限
   staleMs: 500            // これより古い検出結果は「未検出」扱い
 };
+// 回・パターンから、警告の有無と動画を決める
+function applyRoundAndVideos() {
+  CONFIG.warn = CONFIG.round ? ROUND_WARN[CONFIG.round] : false;
+  CONFIG.videoSet = CONFIG.round && CONFIG.order ? ORDERS[CONFIG.order][CONFIG.round - 1] : "";
+  CONFIG.videos = CONFIG.videoOverride.length ? CONFIG.videoOverride : (VIDEO_SETS[CONFIG.videoSet] || []);
+}
+applyRoundAndVideos();
+const roundLabel = () => `第${CONFIG.round}回`;
 let PID = cleanName(params.get("name"));
 document.getElementById("dur-text").textContent = CONFIG.durationMin;
 
@@ -323,44 +362,51 @@ function show(id) {
 // ---------- 0. 実験条件の設定 ----------
 const inName = document.getElementById("in-name");
 const inDelay = document.getElementById("in-delay");
+const inOrder = document.getElementById("in-order");
 const inDur = document.getElementById("in-dur");
 const inTh = document.getElementById("in-th");
 const inVideos = document.getElementById("in-videos");
+inOrder.innerHTML = `<option value="">選んでください</option>` +
+  Object.entries(ORDERS).map(([k, v]) => `<option value="${k}">パターン${k}（${v.split("").join("→")}）</option>`).join("");
 inName.value = params.get("name") || "";
-if (params.get("exp") === "1" || params.get("exp") === "2") document.getElementById("exp-" + params.get("exp")).checked = true;
+if (CONFIG.round) document.getElementById("round-" + CONFIG.round).checked = true;
+if (CONFIG.order) inOrder.value = String(CONFIG.order);
 inDelay.value = Number.isFinite(CONFIG.delay) ? CONFIG.delay : "";
 inDur.value = CONFIG.durationMin;
 inTh.value = CONFIG.threshold;
-inVideos.value = CONFIG.videos.join(",");
+inVideos.value = CONFIG.videoOverride.join(",");
 
-const selectedExp = () => (document.querySelector('input[name="exp"]:checked') || {}).value;
-function syncDelayField() { document.getElementById("delay-field").style.display = selectedExp() === "2" ? "block" : "none"; }
-document.querySelectorAll('input[name="exp"]').forEach(r => r.addEventListener("change", syncDelayField));
+const selectedRound = () => parseRound((document.querySelector('input[name="round"]:checked') || {}).value);
+function syncDelayField() { document.getElementById("delay-field").style.display = ROUND_WARN[selectedRound()] ? "block" : "none"; }
+document.querySelectorAll('input[name="round"]').forEach(r => r.addEventListener("change", syncDelayField));
 syncDelayField();
 
 document.getElementById("btn-settings").addEventListener("click", () => {
-  const e = selectedExp();
-  const warn = e === "2";
+  const round = selectedRound();
+  const warn = round ? ROUND_WARN[round] : false;
   const delay = parseFloat(inDelay.value);
+  const order = parseOrder(inOrder.value);
   const dur = parseFloat(inDur.value);
   const th = parseFloat(inTh.value);
-  const videos = inVideos.value.split(",").map(s => s.trim()).filter(Boolean);
+  const override = inVideos.value.split(",").map(s => s.trim()).filter(Boolean);
   const name = cleanName(inName.value);
   const errors = [];
   if (!name) errors.push("名前を入力してください。");
-  if (e !== "1" && e !== "2") errors.push("実験1か実験2を選んでください。");
-  if (warn && !(delay > 0 && delay <= 600)) errors.push("実験2の秒数を入力してください（0より大きく600秒以下）。");
+  if (!round) errors.push("何回目かを選んでください。");
+  if (warn && !(delay > 0 && delay <= 600)) errors.push("この回の秒数を入力してください（0より大きく600秒以下）。");
+  if (!order && !override.length) errors.push("動画の順番パターンを選んでください。");
   if (!(dur >= 1 && dur <= 180)) errors.push("作業時間は1〜180分で入力してください。");
   if (!(th > 1 && th <= 2)) errors.push("閾値は1より大きく2以下の値で入力してください。");
-  if (!videos.length) errors.push("動画のIDを1つ以上入力してください。");
   const msg = document.getElementById("set-msg");
   if (errors.length) { msg.textContent = errors.join(" "); msg.style.display = "block"; return; }
   msg.style.display = "none";
-  CONFIG.warn = warn;
+  CONFIG.round = round;
   CONFIG.delay = warn ? delay : NaN;
+  CONFIG.order = order;
+  CONFIG.videoOverride = override;
   CONFIG.durationMin = dur;
   CONFIG.threshold = th;
-  CONFIG.videos = videos;
+  applyRoundAndVideos();
   PID = name;
   document.getElementById("dur-text").textContent = CONFIG.durationMin;
   show("s-consent");
@@ -370,8 +416,9 @@ if (params.get("lock") === "1") {
   // 配布用URLの書き間違いで、意図しない条件のまま実験が進むのを防ぐ
   const urlErrors = [];
   if (!PID) urlErrors.push("name（名前）が指定されていません。");
-  if (params.get("exp") !== "1" && params.get("exp") !== "2") urlErrors.push("exp（実験1か2）が 1 か 2 で指定されていません。");
-  if (CONFIG.warn && !(CONFIG.delay > 0 && CONFIG.delay <= 600)) urlErrors.push("実験2なのに delay（秒数）が正しく指定されていません。");
+  if (!CONFIG.round) urlErrors.push("round（何回目か）が 1〜4 で指定されていません。");
+  if (CONFIG.warn && !(CONFIG.delay > 0 && CONFIG.delay <= 600)) urlErrors.push("この回は delay（秒数）が必要ですが、正しく指定されていません。");
+  if (!CONFIG.order && !CONFIG.videoOverride.length) urlErrors.push("order（動画の順番パターン）が 1〜4 で指定されていません。");
   if (!(CONFIG.threshold > 1 && CONFIG.threshold <= 2)) urlErrors.push("th（閾値）が正しくありません。");
   if (urlErrors.length) {
     const msg = document.getElementById("set-msg");
@@ -501,18 +548,42 @@ window.onYouTubeIframeAPIReady = () => {
     events: {
       onReady: () => { ytReady = true; },
       onStateChange: e => {
-        if (e.data === YT.PlayerState.ENDED) {
-          videoIndex++;
-          if (videoIndex < CONFIG.videos.length) player.loadVideoById(CONFIG.videos[videoIndex]);
-          else {
-            videosFinished = true;
-            document.getElementById("video-msg").textContent = "動画はすべて終わりました。残りの時間は、要約の見直しや書き足しをしてください。";
-          }
-        }
+        if (e.data === YT.PlayerState.ENDED) nextVideo();
       }
     }
   });
 };
+// 動画の指定（VIDEO_SETS の各要素）
+//   "動画ID"                … 最初から最後まで
+//   "動画ID@開始"            … 開始位置から（例："is4ZKF9CH7o@7:01"）
+//   "動画ID@開始-終了"        … 開始位置から終了位置まで（例："is4ZKF9CH7o@7:01-37:45"）
+//   位置は 秒 / 分:秒 / 時:分:秒 のどれでもよい。複数並べると順番に再生する
+const toSec = t => (t ? String(t).split(":").reduce((acc, v) => acc * 60 + (parseFloat(v) || 0), 0) : 0);
+function parseEntry(entry) {
+  const [id, range = ""] = String(entry).split("@");
+  const [start, end] = range.split("-");
+  const e = { videoId: id.trim(), startSeconds: toSec(start) };
+  if (end) e.endSeconds = toSec(end);
+  return e;
+}
+let currentEnd = null, advancedAt = 0;
+function loadEntry(entry) {
+  const e = parseEntry(entry);
+  currentEnd = e.endSeconds || null;
+  advancedAt = Date.now();
+  player.loadVideoById(e.startSeconds > 0 || e.endSeconds ? e : e.videoId);
+}
+// 次の区間へ進む（YouTubeの「終了」の合図と、終了位置の見張りの両方から呼ばれる。二重に進まないよう2秒は無視）
+function nextVideo() {
+  if (!running || videosFinished || Date.now() - advancedAt < 2000) return;
+  videoIndex++;
+  if (videoIndex < CONFIG.videos.length) loadEntry(CONFIG.videos[videoIndex]);
+  else {
+    videosFinished = true; currentEnd = null;
+    try { player.pauseVideo(); } catch (e) {}
+    document.getElementById("video-msg").textContent = "動画はすべて終わりました。残りの時間は、要約の見直しや書き足しをしてください。";
+  }
+}
 function videoTime() {
   try { return player && player.getCurrentTime ? player.getCurrentTime() : NaN; } catch (e) { return NaN; }
 }
@@ -539,7 +610,7 @@ function startTask() {
   running = true;
   startMs = Date.now();
   logs = []; charCount = 0; keyCount = 0; summary.value = "";
-  if (ytReady) player.loadVideoById(CONFIG.videos[0]);
+  if (ytReady) loadEntry(CONFIG.videos[0]);
   else document.getElementById("video-msg").textContent = "動画の読み込みに時間がかかっています。少し待っても始まらない場合は、ページを開き直してください。";
   summary.focus();
   sampler = setInterval(sample, CONFIG.sampleMs);
@@ -554,8 +625,13 @@ function tick() {
   document.getElementById("remain").textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   // 動画APIの準備が遅れた場合に後から再生を始める
   if (ytReady && player.getPlayerState && player.getPlayerState() === -1 && videoIndex === 0 && !videosFinished) {
-    player.loadVideoById(CONFIG.videos[0]);
+    loadEntry(CONFIG.videos[0]);
     document.getElementById("video-msg").textContent = "";
+  }
+  // 終了位置を指定した区間は、その位置に来たら次の区間へ進む
+  if (currentEnd !== null && Date.now() - advancedAt > 2000) {
+    const t = videoTime();
+    if (Number.isFinite(t) && t >= currentEnd - 0.3) nextVideo();
   }
 }
 
@@ -624,74 +700,179 @@ function endTask(early) {
   const stream = camEl.srcObject; if (stream) stream.getTracks().forEach(t => t.stop());
   document.getElementById("warn-badge").classList.remove("show");
   document.getElementById("pid").textContent = PID;
-  document.getElementById("cond-text").textContent = WARN_INFO[CONFIG.warn].label;
+  document.getElementById("cond-text").textContent = roundLabel();
   document.getElementById("fname").textContent = fileName();
   if (CONFIG.sendTo) document.getElementById("send-to").textContent = CONFIG.sendTo;
-  if (!CONFIG.warn) showRecommended();
+  showRecommended();
   buildSurvey();
   show("s-survey");
 }
 
-// ---------- 警告なしの回：この人に合わせた警告までの時間 ----------
-// 作業中の崩れを1回ずつ取り出し、その長さの90パーセンタイルを警告までの時間とする。
+// ---------- 次の回で使う秒数（この人に合わせた警告までの時間） ----------
+// 崩れを1回ずつ取り出し、その長さの「9割がこの長さ以内に収まる」最短の長さを秒数とする。
+// 警告ありの回で警告が出た崩れは、警告で途中で直された可能性があるため
+// 「少なくともその長さまでは続いた」（打ち切り）として数える（カプラン・マイヤー法）。
 // 崩れの定義は警告の判定・personal_delay.py と同じ（1秒未満の途切れはつなげて1回）。
-let rec = null;
-function percentile(arr, p) {               // numpy.percentile（線形補間）と同じ計算
-  const s = [...arr].sort((a, b) => a - b);
-  const pos = (s.length - 1) * p / 100, lo = Math.floor(pos), hi = Math.ceil(pos);
-  return s[lo] + (s[hi] - s[lo]) * (pos - lo);
-}
-function computeRecommended() {
-  const t = logs.map(r => r.el / 1000);
-  const diffs = t.slice(1).map((v, i) => v - t[i]);
-  const dt = diffs.length ? median(diffs) : CONFIG.sampleMs / 1000;
-  const gap = CONFIG.gapMs / 1000;
-  const durations = [];
-  let start = null, last = null;
-  logs.forEach((r, i) => {
-    if (r.bad !== 1) return;
-    if (start === null) start = t[i];
-    else if (t[i] - last > gap) { durations.push(last - start + dt); start = t[i]; }
-    last = t[i];
-  });
-  if (start !== null) durations.push(last - start + dt);
+let rec = null;            // この回だけで計算した結果
+let recPooled = null;      // これまでの回とまとめて計算した結果
+let prevSessions = [];     // 読み込んだ前の回の崩れ
 
-  const n = durations.length;
-  const workMin = t.length > 1 ? (t[t.length - 1] - t[0]) / 60 : 0;
-  const detectedPct = logs.length ? 100 * logs.filter(r => r.det === 1).length / logs.length : 0;
+// 0.2秒ごとの記録 [{t(秒), bad(0/1), warn(0/1)}] から崩れを取り出す
+function extractEpisodes(rows, gapSec) {
+  const diffs = rows.slice(1).map((r, i) => r.t - rows[i].t);
+  const dt = diffs.length ? median(diffs) : CONFIG.sampleMs / 1000;
+  const eps = [];
+  let start = null, last = null, warned = false;
+  rows.forEach(r => {
+    if (r.bad === 1) {
+      if (start === null) { start = r.t; warned = false; }
+      else if (r.t - last > gapSec) { eps.push({ len: last - start + dt, event: !warned }); start = r.t; warned = false; }
+      last = r.t;
+    }
+    if (r.warn === 1 && start !== null) warned = true;   // 警告が出た崩れ＝打ち切り
+  });
+  if (start !== null) eps.push({ len: last - start + dt, event: !warned });
+  return eps;
+}
+// カプラン・マイヤー法で「9割がこの長さ以内に収まる」長さを求める（打ち切りがなければ普通の90%点）
+function kmQuantile(eps, q) {
+  const s = [...eps].sort((a, b) => a.len - b.len || (b.event - a.event));
+  let S = 1, atRisk = s.length, i = 0;
+  while (i < s.length) {
+    const t = s[i].len; let d = 0, m = 0;
+    while (i < s.length && Math.abs(s[i].len - t) < 1e-9) { if (s[i].event) d++; m++; i++; }
+    if (d > 0) S *= 1 - d / atRisk;
+    if (S <= 1 - q + 1e-12) return t;
+    atRisk -= m;
+  }
+  return NaN;   // 1割以上の崩れが警告まで続いた（9割の点がまだ見えていない）
+}
+function kmSurvivalAt(eps, x) {   // 崩れが x 秒を超えて続く割合（推定）
+  const s = [...eps].sort((a, b) => a.len - b.len || (b.event - a.event));
+  let S = 1, atRisk = s.length, i = 0;
+  while (i < s.length && s[i].len <= x) {
+    const t = s[i].len; let d = 0, m = 0;
+    while (i < s.length && Math.abs(s[i].len - t) < 1e-9) { if (s[i].event) d++; m++; i++; }
+    if (d > 0) S *= 1 - d / atRisk;
+    atRisk -= m;
+  }
+  return S;
+}
+function decideDelay(eps) {
+  const n = eps.length, censored = eps.filter(e => !e.event).length;
   let delay, raw = NaN, note = "";
   if (n < REC.minEpisodes) {
     delay = REC.fallback;
     note = `崩れが${n}回しかなく推定が不安定なため、暫定値${REC.fallback}秒`;
   } else {
-    raw = percentile(durations, REC.pct);
+    raw = kmQuantile(eps, REC.q);
+    if (!Number.isFinite(raw)) {
+      raw = Math.max(...eps.map(e => e.len));
+      note = "1割以上の崩れが警告まで続いたため、記録された最も長い崩れの長さを使用";
+    }
     delay = Math.min(REC.max, Math.max(REC.min, raw));
-    if (delay !== raw) note = `計算値${raw.toFixed(1)}秒を${REC.min}〜${REC.max}秒の範囲に収めた`;
+    if (delay !== raw) note += (note ? "。" : "") + `計算値${raw.toFixed(1)}秒を${REC.min}〜${REC.max}秒の範囲に収めた`;
   }
   delay = Math.round(delay * 10) / 10;
-  const over = durations.filter(d => d > delay).length;
-  return {
-    delay, raw, note, n, workMin, detectedPct,
-    median: n ? median(durations) : NaN,
-    longest: n ? Math.max(...durations) : NaN,
-    perHour: workMin > 0 ? over / workMin * 60 : NaN
-  };
+  const lens = eps.map(e => e.len);
+  return { delay, raw, note, n, censored,
+           median: n ? median(lens) : NaN, longest: n ? Math.max(...lens) : NaN,
+           overShare: n ? kmSurvivalAt(eps, delay) : NaN };
 }
+function currentRows() { return logs.map(r => ({ t: r.el / 1000, bad: r.bad, warn: r.warn })); }
+
+function computeRecommended() {
+  const eps = extractEpisodes(currentRows(), CONFIG.gapMs / 1000);
+  const r = decideDelay(eps);
+  const t = logs.map(x => x.el / 1000);
+  r.workMin = t.length > 1 ? (t[t.length - 1] - t[0]) / 60 : 0;
+  r.detectedPct = logs.length ? 100 * logs.filter(x => x.det === 1).length / logs.length : 0;
+  r.perHour = r.workMin > 0 ? eps.length / r.workMin * 60 * r.overShare : NaN;
+  r.eps = eps;
+  return r;
+}
+const NEXT_TITLE = { 1: "第2回で使う秒数", 2: "第3回で使う秒数", 3: "第4回で使う秒数", 4: "この人の最終的な秒数（第1〜4回から計算）" };
 function showRecommended() {
   rec = computeRecommended();
-  document.getElementById("rec-delay").textContent = `${rec.delay} 秒`;
-  const lines = [
-    `崩れの回数 ${rec.n} 回（中央値 ${num(rec.median, 1) || "-"} 秒・最長 ${num(rec.longest, 1) || "-"} 秒）`,
-    `この秒数なら警告は1時間あたり約 ${num(rec.perHour, 1) || "-"} 回（今回のデータで換算）`,
-    `姿勢を検出できた割合 ${rec.detectedPct.toFixed(0)}%`
-  ];
-  if (rec.note) lines.push("※" + rec.note);
+  document.getElementById("prev-field").style.display = CONFIG.round >= 2 ? "block" : "none";
+  renderRecommended();
+}
+function renderRecommended() {
+  const use = recPooled || rec;
+  document.getElementById("rec-title").textContent = NEXT_TITLE[CONFIG.round] || "次の回で使う秒数";
+  document.getElementById("rec-delay").textContent = `${use.delay} 秒`;
+  const lines = [];
+  if (recPooled) lines.push(`これまでの${recPooled.sessions}回分をまとめて計算（崩れ ${recPooled.n} 回、うち警告で直された ${recPooled.censored} 回）`);
+  else if (CONFIG.round >= 2) lines.push("※前の回のCSVを選ぶと、まとめて計算し直します（選ばないとこの回だけの値になります）");
+  lines.push(`この回：崩れ ${rec.n} 回（中央値 ${num(rec.median, 1) || "-"} 秒・最長 ${num(rec.longest, 1) || "-"} 秒）、この回だけで出した秒数 ${rec.delay} 秒`);
+  lines.push(`この回の警告の回数 ${warnCount} 回` + (CONFIG.warn && rec.n ? `（崩れ ${rec.n} 回のうち ${(100 * rec.censored / rec.n).toFixed(0)}%。目安は約10%）` : "") + `、姿勢を検出できた割合 ${rec.detectedPct.toFixed(0)}%`);
+  if (use.note) lines.push("※" + use.note);
   if (rec.detectedPct < 80) lines.push("※検出できなかった時間が多いため、カメラの映り方を確認してください");
   document.getElementById("rec-detail").innerHTML = lines.map(s => s.replace(/[<>&]/g, "")).join("<br>");
-  const q = new URLSearchParams({ name: PID, exp: "2", delay: rec.delay, th: CONFIG.threshold, dur: CONFIG.durationMin });
-  document.getElementById("rec-link").href = location.pathname + "?" + q.toString();
-  document.getElementById("rec-box").style.display = "block";
+  const link = document.getElementById("rec-link");
+  if (CONFIG.round < 4) {
+    const next = CONFIG.round + 1;
+    const q = { name: PID, round: next, th: CONFIG.threshold, dur: CONFIG.durationMin };
+    if (CONFIG.order) q.order = CONFIG.order;
+    if (ROUND_WARN[next]) q.delay = use.delay;
+    link.href = location.pathname + "?" + new URLSearchParams(q).toString();
+    link.textContent = `第${next}回を準備する（新しいタブ）`;
+    link.style.display = "inline-block";
+  } else {
+    link.style.display = "none";
+  }
 }
+
+// 前の回のCSVを読み込む
+function parseSessionCSV(text) {
+  const meta = {}; const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  let i = 0;
+  for (; i < lines.length && lines[i].startsWith("#"); i++) {
+    const body = lines[i].replace(/^#\s*/, ""); const k = body.indexOf(",");
+    if (k > 0) meta[body.slice(0, k).trim()] = body.slice(k + 1).trim();
+  }
+  const head = (lines[i] || "").split(",");
+  const ix = n => head.indexOf(n);
+  const iEl = ix("Elapsed_ms"), iBad = ix("Is_Bad"), iWarn = ix("Is_Warning_Active");
+  if (iEl < 0 || iBad < 0) throw new Error("実験ページのCSVではないようです");
+  const rows = [];
+  for (i++; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const c = lines[i].split(",");
+    const t = parseFloat(c[iEl]) / 1000; if (!Number.isFinite(t)) continue;
+    rows.push({ t, bad: Number(c[iBad]) === 1 ? 1 : 0, warn: iWarn >= 0 && Number(c[iWarn]) === 1 ? 1 : 0 });
+  }
+  const gap = parseFloat(meta.GapMs || "1000") / 1000;
+  return { meta, eps: extractEpisodes(rows, gap) };
+}
+document.getElementById("in-prev").addEventListener("change", async ev => {
+  const msg = document.getElementById("prev-msg");
+  const notes = []; prevSessions = [];
+  const thisStart = stamp(new Date(startMs));
+  const seen = new Set([thisStart]);
+  for (const f of ev.target.files) {
+    try {
+      const s = parseSessionCSV(await f.text());
+      const key = s.meta.StartedAt || f.name;
+      const nm = s.meta.Name || s.meta.Subject || "";
+      if (seen.has(key)) { notes.push(`${f.name}：この回と同じ、または重複のため使いません`); continue; }
+      if (nm && nm !== PID) { notes.push(`${f.name}：名前が違うため使いません（${nm}）`); continue; }
+      if (s.meta.Round && Number(s.meta.Round) >= CONFIG.round) { notes.push(`${f.name}：この回より後の回のため使いません`); continue; }
+      seen.add(key); prevSessions.push(s);
+      notes.push(`${f.name}：${s.meta.Round ? "第" + s.meta.Round + "回" : "読み込み"}（崩れ ${s.eps.length} 回）`);
+    } catch (e) { notes.push(`${f.name}：読み込めませんでした（${e.message}）`); }
+  }
+  if (prevSessions.length) {
+    const all = [...prevSessions.flatMap(s => s.eps), ...rec.eps];
+    recPooled = decideDelay(all);
+    recPooled.sessions = prevSessions.length + 1;
+    recPooled.files = prevSessions.map(s => s.meta.Round ? "R" + s.meta.Round : "?").join(" ");
+  } else {
+    recPooled = null;
+  }
+  msg.textContent = notes.join(" ／ ");
+  renderRecommended();
+});
 
 // ---------- 作業後のアンケート（5段階） ----------
 const SCALE = ["まったく\nあてはまらない", "あまり\nあてはまらない", "どちらとも\nいえない", "やや\nあてはまる", "とても\nあてはまる"];
@@ -735,7 +916,7 @@ let downloaded = false;
 function fileName() {
   const d = new Date(startMs), p = n => String(n).padStart(2, "0");
   // 同じ日に2回やっても上書きされないよう、開始時刻（時分）も入れる
-  return `posture_${PID}_${WARN_INFO[CONFIG.warn].code}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.csv`;
+  return `posture_${PID}_R${CONFIG.round}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.csv`;
 }
 const num = (v, k) => (Number.isFinite(v) ? v.toFixed(k) : "");
 const clean = s => String(s).replace(/[\r\n]+/g, " ").replace(/,/g, "，");
@@ -743,18 +924,25 @@ const clean = s => String(s).replace(/[\r\n]+/g, " ").replace(/,/g, "，");
 function buildCSV() {
   const meta = [
     ["Name", PID],
-    ["Experiment", WARN_INFO[CONFIG.warn].label],
-    ["CondCode", WARN_INFO[CONFIG.warn].code],
-    ["Warning", CONFIG.warn ? 1 : 0],   // 解析用：0＝警告なし（実験1）、1＝警告あり（実験2）
+    ["Round", CONFIG.round],
+    ["CondCode", "R" + CONFIG.round],
+    ["Warning", CONFIG.warn ? 1 : 0],   // 解析用：0＝警告なし（第1回）、1＝警告あり（第2〜4回）
     ["WarnDelaySec", CONFIG.warn ? CONFIG.delay : ""],
-    // 実験2で使う秒数（実験1のときだけ。実験2では空欄）
-    ["RecommendedDelaySec", rec ? rec.delay : ""],
-    ["RecPercentile", rec ? REC.pct : ""],
-    ["RecRawP90Sec", rec ? num(rec.raw, 2) : ""],
-    ["RecEpisodes", rec ? rec.n : ""],
-    ["RecMedianSec", rec ? num(rec.median, 2) : ""],
-    ["RecWarningsPerHour", rec ? num(rec.perHour, 1) : ""],
-    ["RecNote", rec ? clean(rec.note) : ""],
+    ["Order", CONFIG.order || ""],
+    ["VideoSet", CONFIG.videoOverride.length ? "直接指定" : CONFIG.videoSet],
+    ["StartedAt", stamp(new Date(startMs))],
+    // この回だけで計算した秒数（崩れの長さの9割点。警告で直された崩れは打ち切りとして扱う）
+    ["SessionDelaySec", rec ? rec.delay : ""],
+    ["SessionEpisodes", rec ? rec.n : ""],
+    ["SessionCensored", rec ? rec.censored : ""],
+    ["SessionMedianSec", rec ? num(rec.median, 2) : ""],
+    ["SessionNote", rec ? clean(rec.note) : ""],
+    // これまでの回とまとめて計算した次の回の秒数（前の回のCSVを読み込んだときだけ）
+    ["NextDelaySec", recPooled ? recPooled.delay : (rec && CONFIG.round === 1 ? rec.delay : "")],
+    ["NextDelaySessions", recPooled ? recPooled.sessions : (rec && CONFIG.round === 1 ? 1 : "")],
+    ["NextDelayEpisodes", recPooled ? recPooled.n : ""],
+    ["NextDelayCensored", recPooled ? recPooled.censored : ""],
+    ["NextDelayNote", recPooled ? clean(recPooled.note) : ""],
     ["Threshold", CONFIG.threshold],
     ["Metric", "Ratio = (両耳間隔/肩幅) / 基準姿勢の(両耳間隔/肩幅)"],
     ["BaselineEar", baseline.ear.toFixed(2)],
