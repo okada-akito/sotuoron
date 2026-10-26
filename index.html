@@ -81,6 +81,10 @@
   .field label { display: block; font-weight: 700; margin-bottom: 6px; }
   .field input[type=number] { font: inherit; width: 7em; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); }
   .field input:disabled { background: #F3F5F6; color: var(--slate); }
+  .choices { display: flex; gap: 8px; flex-wrap: wrap; }
+  .choices label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+  .choices label:has(input:checked) { border-color: var(--teal); background: var(--teal-soft); font-weight: 700; }
+  .choices input { accent-color: var(--teal); margin: 0; }
   .count { font-size: 3rem; font-weight: 700; color: var(--teal); text-align: center; margin: 8px 0; font-variant-numeric: tabular-nums; }
 
   /* 作業画面 */
@@ -106,50 +110,41 @@
 <section id="s-settings" class="screen active">
   <div class="wrap">
     <h1>実験条件の設定</h1>
-    <p class="lead">実験者が設定してから、参加者に画面を渡してください。</p>
 
     <div class="field">
       <label for="in-name">名前</label>
-      <input type="text" id="in-name" maxlength="30" placeholder="例：岡田晃斗" style="font:inherit;width:14em;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);">
-      <p class="muted">同じ人には毎回同じ書き方で入力してください（ファイル名とCSVに入ります）。</p>
-    </div>
-
-    <h2>何回目か</h2>
-    <label class="check"><input type="radio" name="round" value="1" id="round-1"><span>第1回</span></label>
-    <label class="check"><input type="radio" name="round" value="2" id="round-2"><span>第2回</span></label>
-    <label class="check"><input type="radio" name="round" value="3" id="round-3"><span>第3回</span></label>
-    <label class="check"><input type="radio" name="round" value="4" id="round-4"><span>第4回</span></label>
-    <p class="muted">第1回は警告なし、第2〜4回は警告ありで自動的に行います（参加者の画面には「第○回」とだけ出ます）。</p>
-
-    <div class="field" id="delay-field">
-      <label for="in-delay">この回の秒数</label>
-      <input type="number" id="in-delay" min="0.1" max="600" step="0.1"> 秒
-      <p class="muted">前の回の終了画面（実験者用）に出た「次の回で使う秒数」を入れてください。</p>
+      <input type="text" id="in-name" maxlength="30" style="font:inherit;width:14em;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);">
     </div>
 
     <div class="field">
-      <label for="in-order">動画の順番パターン</label>
-      <select id="in-order" style="font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);"></select>
-      <p class="muted">参加者ごとに1〜4を順に割り当て、その人には4回とも同じパターンを選んでください。パターンと回から、使う動画が自動で決まります。</p>
+      <label>何回目か</label>
+      <div class="choices">
+        <label><input type="radio" name="round" value="1" id="round-1">第1回</label>
+        <label><input type="radio" name="round" value="2" id="round-2">第2回</label>
+        <label><input type="radio" name="round" value="3" id="round-3">第3回</label>
+        <label><input type="radio" name="round" value="4" id="round-4">第4回</label>
+      </div>
     </div>
 
-    <details style="margin:24px 0">
-      <summary style="cursor:pointer;color:var(--slate)">その他の設定（通常は変えません）</summary>
-      <div class="field">
-        <label for="in-videos">動画のID（入れたときだけ、動画セットの代わりに使う）</label>
-        <input type="text" id="in-videos" style="font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);">
-        <p class="muted">YouTubeのURLの「v=」の後ろの文字列です。複数ある場合はカンマで区切ると順番に再生します。通常は空欄のままにします。</p>
+    <div class="field">
+      <label>グループ</label>
+      <div class="choices">
+        <label><input type="radio" name="group" value="A" id="group-A">A</label>
+        <label><input type="radio" name="group" value="B" id="group-B">B</label>
+        <label><input type="radio" name="group" value="C" id="group-C">C</label>
+        <label><input type="radio" name="group" value="D" id="group-D">D</label>
       </div>
-      <div class="field">
-        <label for="in-dur">作業時間</label>
-        <input type="number" id="in-dur" min="1" max="180" step="1"> 分
-      </div>
-      <div class="field">
-        <label for="in-th">崩れとみなす閾値</label>
-        <input type="number" id="in-th" min="1.01" max="2" step="0.01">
-        <p class="muted">基準姿勢を1としたときの値です。この値を超えると「崩れ」と判定します。</p>
-      </div>
-    </details>
+    </div>
+
+    <div class="field" id="delay-field">
+      <label for="in-delay">秒数</label>
+      <input type="number" id="in-delay" min="0.1" max="600" step="0.1"> 秒
+    </div>
+
+    <div class="field">
+      <label for="in-th">閾値</label>
+      <input type="number" id="in-th" min="1.01" max="2" step="0.01">
+    </div>
 
     <p class="alert" id="set-msg" style="display:none"></p>
     <div class="row"><button id="btn-settings">この条件で始める</button></div>
@@ -292,45 +287,50 @@
 <script>
 // ============================================================
 // 実験の設定（設定画面で選ぶ。URLの後ろにつけると初期値になる）
-//   例: index.html?name=岡田晃斗&round=2&delay=8.4&order=1&lock=1
-//   order: 動画の順番パターン（1〜4）。パターンと回から動画が決まる
+//   例: index.html?name=岡田晃斗&round=2&group=A&delay=8.4&lock=1
 //   name : 名前
 //   round: 何回目か（1〜4）。第1回＝警告なし、第2〜4回＝警告あり（なし→あり→あり→あり）
 //          参加者の目に触れるところには「警告なし／あり」を出さず「第○回」とだけ出す
+//   group: グループ（A〜D）。グループと回から、その回に流す動画が決まる
 //   delay: この回で警告するまでの秒数（第2〜4回で使う）
-//   v    : 動画IDを直接指定するとき（カンマ区切り。指定すると動画セットの代わりに使う）
 //   th   : 崩れとみなす比の閾値（基準姿勢を1としたとき）
-//   dur  : 作業時間（分）
+//   --- 以下は画面には出さない（試しに動かすとき用） ---
+//   dur  : 作業時間（分。通常30。閾値の確認などで短くしたいときに ?dur=3 のようにつける）
+//   v    : 動画を直接指定するとき（カンマ区切り。指定するとグループの動画の代わりに使う）
 //   to   : データの送付先（終了画面に表示）
 //   lock : 1 のとき設定画面を飛ばす（遠隔配布用）
 // ============================================================
 const params = new URLSearchParams(location.search);
 const ROUND_WARN = { 1: false, 2: true, 3: true, 4: true };    // なし→あり→あり→あり
-// 動画A〜D（MIXI 2025年 新卒向け技術研修の講義動画から、約30分の区間を切り出して再生する）
-// 書き方は「動画ID@開始-終了」（下の parseEntry の説明を参照）。作業時間で打ち切られる
-// 【要確認】埋め込み再生できるか・広告の有無を実際に再生して確認すること
-const VIDEO_SETS = {
-  A: ["DTY3RBkXQBA@1:16:45-1:48:39"],   // Git 研修 Basic・チーム開発と Git / GitHub（31分54秒）
-  B: ["is4ZKF9CH7o@7:01-37:45"],         // データベース研修 DB基礎（30分44秒）
-  C: ["9ddk4LoyitY@25:15-1:01:10"],      // WEB フロントエンド研修（35分55秒）
-  D: ["ByIw8LQgnGw@3:49-45:45"]          // テスト・設計研修（41分56秒）
+// 講義動画（MIXI 2025年 新卒向け技術研修の講義動画から、30分以上の区間を切り出して再生する。作業時間の30分で打ち切る）
+// 書き方は「動画ID@開始-終了」（下の parseEntry の説明を参照）
+const VIDEOS = {
+  git:   { label: "Git研修",          list: ["DTY3RBkXQBA@1:16:45-1:48:39"] },  // Git 研修 Basic・チーム開発と Git / GitHub（31分54秒）
+  db:    { label: "DB基礎研修",       list: ["is4ZKF9CH7o@7:01-37:45"] },        // データベース研修 DB基礎（30分44秒）
+  front: { label: "フロントエンド研修", list: ["9ddk4LoyitY@25:15-1:01:10"] },     // WEB フロントエンド研修（35分55秒）
+  test:  { label: "テスト・設計研修",   list: ["ByIw8LQgnGw@3:49-45:45"] }         // テスト・設計研修（41分56秒）
 };
-// 動画の順番パターン（ウィリアムズ方陣：どの動画も各回に1度ずつ、どの動画の直後にも他の動画が1度ずつ来る）
-const ORDERS = { 1: "ABDC", 2: "BCAD", 3: "CDBA", 4: "DACB" };
+// グループごとの動画の順番（ウィリアムズ方陣：どの動画も各回に1度ずつ、どの動画の直後にも他の動画が1度ずつ来る）
+const GROUPS = {
+  A: ["git", "db", "test", "front"],
+  B: ["db", "front", "git", "test"],
+  C: ["front", "test", "db", "git"],
+  D: ["test", "git", "front", "db"]
+};
 // 次の回の秒数の決め方（personal_delay.py と同じ）
 //   崩れの長さのうち「9割がこの長さ以内に収まる」最短の長さ。警告で途中で直された崩れは
 //   「少なくともその長さまでは続いた」として数える（カプラン・マイヤー法）
 const REC = { q: 0.9, minEpisodes: 10, fallback: 5.0, min: 2.0, max: 30.0 };  // 上限30秒＝先行研究（ErgoAssist）の一律30秒より甘くしない
 // ファイル名に使えない文字だけ取り除く（日本語の名前はそのまま使える）
 const cleanName = s => String(s || "").trim().replace(/[\\/:*?"<>|,\s]+/g, "_").slice(0, 30);
-const parseOrder = v => (["1", "2", "3", "4"].includes(String(v)) ? Number(v) : null);
 const parseRound = v => (["1", "2", "3", "4"].includes(String(v)) ? Number(v) : null);
+const parseGroup = v => (["A", "B", "C", "D"].includes(String(v || "").toUpperCase()) ? String(v).toUpperCase() : null);
 const CONFIG = {
   round: parseRound(params.get("round")),
+  group: parseGroup(params.get("group")),
   warn: false,
   delay: parseFloat(params.get("delay") || ""),
-  order: parseOrder(params.get("order")),
-  videoSet: "",
+  video: "",
   threshold: parseFloat(params.get("th") || "1.10"),
   durationMin: parseFloat(params.get("dur") || "30"),
   videos: [],
@@ -341,11 +341,12 @@ const CONFIG = {
   visMin: 0.5,            // 耳・肩の検出の信頼度の下限
   staleMs: 500            // これより古い検出結果は「未検出」扱い
 };
-// 回・パターンから、警告の有無と動画を決める
+if (!(CONFIG.durationMin >= 1 && CONFIG.durationMin <= 180)) CONFIG.durationMin = 30;
+// 回・グループから、警告の有無と動画を決める
 function applyRoundAndVideos() {
   CONFIG.warn = CONFIG.round ? ROUND_WARN[CONFIG.round] : false;
-  CONFIG.videoSet = CONFIG.round && CONFIG.order ? ORDERS[CONFIG.order][CONFIG.round - 1] : "";
-  CONFIG.videos = CONFIG.videoOverride.length ? CONFIG.videoOverride : (VIDEO_SETS[CONFIG.videoSet] || []);
+  CONFIG.video = CONFIG.round && CONFIG.group ? GROUPS[CONFIG.group][CONFIG.round - 1] : "";
+  CONFIG.videos = CONFIG.videoOverride.length ? CONFIG.videoOverride : (CONFIG.video ? VIDEOS[CONFIG.video].list : []);
 }
 applyRoundAndVideos();
 const roundLabel = () => `第${CONFIG.round}回`;
@@ -362,53 +363,40 @@ function show(id) {
 // ---------- 0. 実験条件の設定 ----------
 const inName = document.getElementById("in-name");
 const inDelay = document.getElementById("in-delay");
-const inOrder = document.getElementById("in-order");
-const inDur = document.getElementById("in-dur");
 const inTh = document.getElementById("in-th");
-const inVideos = document.getElementById("in-videos");
-inOrder.innerHTML = `<option value="">選んでください</option>` +
-  Object.entries(ORDERS).map(([k, v]) => `<option value="${k}">パターン${k}（${v.split("").join("→")}）</option>`).join("");
 inName.value = params.get("name") || "";
 if (CONFIG.round) document.getElementById("round-" + CONFIG.round).checked = true;
-if (CONFIG.order) inOrder.value = String(CONFIG.order);
+if (CONFIG.group) document.getElementById("group-" + CONFIG.group).checked = true;
 inDelay.value = Number.isFinite(CONFIG.delay) ? CONFIG.delay : "";
-inDur.value = CONFIG.durationMin;
 inTh.value = CONFIG.threshold;
-inVideos.value = CONFIG.videoOverride.join(",");
 
-const selectedRound = () => parseRound((document.querySelector('input[name="round"]:checked') || {}).value);
-function syncDelayField() { document.getElementById("delay-field").style.display = ROUND_WARN[selectedRound()] ? "block" : "none"; }
+const checkedValue = name => (document.querySelector(`input[name="${name}"]:checked`) || {}).value;
+function syncDelayField() { document.getElementById("delay-field").style.display = ROUND_WARN[parseRound(checkedValue("round"))] ? "block" : "none"; }
 document.querySelectorAll('input[name="round"]').forEach(r => r.addEventListener("change", syncDelayField));
 syncDelayField();
 
 document.getElementById("btn-settings").addEventListener("click", () => {
-  const round = selectedRound();
+  const round = parseRound(checkedValue("round"));
+  const group = parseGroup(checkedValue("group"));
   const warn = round ? ROUND_WARN[round] : false;
   const delay = parseFloat(inDelay.value);
-  const order = parseOrder(inOrder.value);
-  const dur = parseFloat(inDur.value);
   const th = parseFloat(inTh.value);
-  const override = inVideos.value.split(",").map(s => s.trim()).filter(Boolean);
   const name = cleanName(inName.value);
   const errors = [];
   if (!name) errors.push("名前を入力してください。");
   if (!round) errors.push("何回目かを選んでください。");
-  if (warn && !(delay > 0 && delay <= 600)) errors.push("この回の秒数を入力してください（0より大きく600秒以下）。");
-  if (!order && !override.length) errors.push("動画の順番パターンを選んでください。");
-  if (!(dur >= 1 && dur <= 180)) errors.push("作業時間は1〜180分で入力してください。");
+  if (!group && !CONFIG.videoOverride.length) errors.push("グループを選んでください。");
+  if (warn && !(delay > 0 && delay <= 600)) errors.push("秒数を入力してください（0より大きく600秒以下）。");
   if (!(th > 1 && th <= 2)) errors.push("閾値は1より大きく2以下の値で入力してください。");
   const msg = document.getElementById("set-msg");
   if (errors.length) { msg.textContent = errors.join(" "); msg.style.display = "block"; return; }
   msg.style.display = "none";
   CONFIG.round = round;
+  CONFIG.group = group;
   CONFIG.delay = warn ? delay : NaN;
-  CONFIG.order = order;
-  CONFIG.videoOverride = override;
-  CONFIG.durationMin = dur;
   CONFIG.threshold = th;
   applyRoundAndVideos();
   PID = name;
-  document.getElementById("dur-text").textContent = CONFIG.durationMin;
   show("s-consent");
 });
 
@@ -417,8 +405,8 @@ if (params.get("lock") === "1") {
   const urlErrors = [];
   if (!PID) urlErrors.push("name（名前）が指定されていません。");
   if (!CONFIG.round) urlErrors.push("round（何回目か）が 1〜4 で指定されていません。");
+  if (!CONFIG.group && !CONFIG.videoOverride.length) urlErrors.push("group（グループ）が A〜D で指定されていません。");
   if (CONFIG.warn && !(CONFIG.delay > 0 && CONFIG.delay <= 600)) urlErrors.push("この回は delay（秒数）が必要ですが、正しく指定されていません。");
-  if (!CONFIG.order && !CONFIG.videoOverride.length) urlErrors.push("order（動画の順番パターン）が 1〜4 で指定されていません。");
   if (!(CONFIG.threshold > 1 && CONFIG.threshold <= 2)) urlErrors.push("th（閾値）が正しくありません。");
   if (urlErrors.length) {
     const msg = document.getElementById("set-msg");
@@ -553,7 +541,7 @@ window.onYouTubeIframeAPIReady = () => {
     }
   });
 };
-// 動画の指定（VIDEO_SETS の各要素）
+// 動画の指定（VIDEOS の list の各要素）
 //   "動画ID"                … 最初から最後まで
 //   "動画ID@開始"            … 開始位置から（例："is4ZKF9CH7o@7:01"）
 //   "動画ID@開始-終了"        … 開始位置から終了位置まで（例："is4ZKF9CH7o@7:01-37:45"）
@@ -812,8 +800,9 @@ function renderRecommended() {
   const link = document.getElementById("rec-link");
   if (CONFIG.round < 4) {
     const next = CONFIG.round + 1;
-    const q = { name: PID, round: next, th: CONFIG.threshold, dur: CONFIG.durationMin };
-    if (CONFIG.order) q.order = CONFIG.order;
+    const q = { name: PID, round: next, th: CONFIG.threshold };
+    if (CONFIG.group) q.group = CONFIG.group;
+    if (params.get("dur")) q.dur = CONFIG.durationMin;
     if (ROUND_WARN[next]) q.delay = use.delay;
     link.href = location.pathname + "?" + new URLSearchParams(q).toString();
     link.textContent = `第${next}回を準備する（新しいタブ）`;
@@ -928,8 +917,8 @@ function buildCSV() {
     ["CondCode", "R" + CONFIG.round],
     ["Warning", CONFIG.warn ? 1 : 0],   // 解析用：0＝警告なし（第1回）、1＝警告あり（第2〜4回）
     ["WarnDelaySec", CONFIG.warn ? CONFIG.delay : ""],
-    ["Order", CONFIG.order || ""],
-    ["VideoSet", CONFIG.videoOverride.length ? "直接指定" : CONFIG.videoSet],
+    ["Group", CONFIG.group || ""],
+    ["Video", CONFIG.videoOverride.length ? "直接指定" : (CONFIG.video ? VIDEOS[CONFIG.video].label : "")],
     ["StartedAt", stamp(new Date(startMs))],
     // この回だけで計算した秒数（崩れの長さの9割点。警告で直された崩れは打ち切りとして扱う）
     ["SessionDelaySec", rec ? rec.delay : ""],
