@@ -305,7 +305,7 @@ const ROUND_WARN = { 1: false, 2: true, 3: true, 4: true };    // なし→あ�
 // 講義動画（MIXI 2025年 新卒向け技術研修の講義動画から、30分以上の区間を切り出して再生する。作業時間の30分で打ち切る）
 // 書き方は「動画ID@開始-終了」（下の parseEntry の説明を参照）
 const VIDEOS = {
-  git:   { label: "Git研修",          list: ["DTY3RBkXQBA@1:16:45-1:48:39"] },  // Git 研修 Basic・チーム開発と Git / GitHub（31分54秒）
+  git:   { label: "Git研修",          list: ["DTY3RBkXQBA@1:18:39-1:48:39"] },  // Git 研修 Basic・チーム開発と Git / GitHub（30分00秒。最初の約2分を省いた）
   db:    { label: "DB基礎研修",       list: ["is4ZKF9CH7o@7:01-37:45"] },        // データベース研修 DB基礎（30分44秒）
   front: { label: "フロントエンド研修", list: ["9ddk4LoyitY@25:15-1:01:10"] },     // WEB フロントエンド研修（35分55秒）
   test:  { label: "テスト・設計研修",   list: ["ByIw8LQgnGw@3:49-45:45"] }         // テスト・設計研修（41分56秒）
@@ -331,7 +331,7 @@ const CONFIG = {
   warn: false,
   delay: parseFloat(params.get("delay") || ""),
   video: "",
-  threshold: parseFloat(params.get("th") || "1.10"),
+  threshold: parseFloat(params.get("th") || "1.09"),
   durationMin: parseFloat(params.get("dur") || "30"),
   videos: [],
   videoOverride: (params.get("v") || "").split(",").map(s => s.trim()).filter(Boolean),
