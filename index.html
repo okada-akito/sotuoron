@@ -94,6 +94,8 @@
   .task-main { max-width: 960px; margin: 0 auto; padding: 20px 24px 48px; }
   .video-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; }
   .video-frame > div, .video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* 動画の上に透明な板を重ね、クリックで一時停止できないようにする */
+  .video-frame::after { content: ""; position: absolute; inset: 0; z-index: 2; }
   textarea { width: 100%; min-height: 200px; margin-top: 16px; padding: 14px; font: inherit; line-height: 1.7; border: 1px solid var(--line); border-radius: var(--radius); resize: vertical; color: var(--ink); }
   .warn-badge { display: none; background: var(--amber); color: #fff; font-weight: 700; padding: 6px 14px; border-radius: var(--radius); }
   .warn-badge.show { display: inline-block; }
@@ -305,7 +307,7 @@ const ROUND_WARN = { 1: false, 2: true, 3: true, 4: true };    // なし→あ�
 // 講義動画（MIXI 2025年 新卒向け技術研修の講義動画から、30分以上の区間を切り出して再生する。作業時間の30分で打ち切る）
 // 書き方は「動画ID@開始-終了」（下の parseEntry の説明を参照）
 const VIDEOS = {
-  git:   { label: "Git研修",          list: ["DTY3RBkXQBA@1:18:39-1:48:39"] },  // Git 研修 Basic・チーム開発と Git / GitHub（30分00秒。最初の約2分を省いた）
+  git:   { label: "Git研修",          list: ["DTY3RBkXQBA@1:17:31-1:48:39"] },  // Git 研修 Basic・チーム開発と Git / GitHub（31分08秒）
   db:    { label: "DB基礎研修",       list: ["is4ZKF9CH7o@7:01-37:45"] },        // データベース研修 DB基礎（30分44秒）
   front: { label: "フロントエンド研修", list: ["9ddk4LoyitY@25:15-1:01:10"] },     // WEB フロントエンド研修（35分55秒）
   test:  { label: "テスト・設計研修",   list: ["ByIw8LQgnGw@3:49-45:45"] }         // テスト・設計研修（41分56秒）
@@ -525,6 +527,7 @@ document.getElementById("btn-calib").addEventListener("click", () => {
 
 // ---------- YouTube ----------
 let player = null, ytReady = false, videoIndex = 0, videosFinished = false;
+let videoStarted = false, stoppedSince = null, resumeCount = 0;
 (function loadYT() {
   const s = document.createElement("script");
   s.src = "https://www.youtube.com/iframe_api";
@@ -532,7 +535,8 @@ let player = null, ytReady = false, videoIndex = 0, videosFinished = false;
 })();
 window.onYouTubeIframeAPIReady = () => {
   player = new YT.Player("yt", {
-    playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+    // 参加者が動画を止めたり飛ばしたりできないように、操作ボタンとキーボード操作を無効にする
+    playerVars: { rel: 0, modestbranding: 1, playsinline: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3 },
     events: {
       onReady: () => { ytReady = true; },
       onStateChange: e => {
@@ -572,6 +576,9 @@ function nextVideo() {
     document.getElementById("video-msg").textContent = "動画はすべて終わりました。残りの時間は、要約の見直しや書き足しをしてください。";
   }
 }
+function videoState() {   // 1＝再生中、2＝一時停止、3＝読み込み中、0＝終了、5＝頭出し済み、-1＝未開始
+  try { return player && player.getPlayerState ? player.getPlayerState() : ""; } catch (e) { return ""; }
+}
 function videoTime() {
   try { return player && player.getCurrentTime ? player.getCurrentTime() : NaN; } catch (e) { return NaN; }
 }
@@ -598,7 +605,8 @@ function startTask() {
   running = true;
   startMs = Date.now();
   logs = []; charCount = 0; keyCount = 0; summary.value = "";
-  if (ytReady) loadEntry(CONFIG.videos[0]);
+  videoStarted = false; stoppedSince = null; videoIndex = 0; videosFinished = false;
+  if (ytReady) { loadEntry(CONFIG.videos[0]); videoStarted = true; }
   else document.getElementById("video-msg").textContent = "動画の読み込みに時間がかかっています。少し待っても始まらない場合は、ページを開き直してください。";
   summary.focus();
   sampler = setInterval(sample, CONFIG.sampleMs);
@@ -611,10 +619,21 @@ function tick() {
   if (leftMs <= 0) { endTask(false); return; }
   const m = Math.floor(leftMs / 60000), s = Math.floor((leftMs % 60000) / 1000);
   document.getElementById("remain").textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  // 動画APIの準備が遅れた場合に後から再生を始める
-  if (ytReady && player.getPlayerState && player.getPlayerState() === -1 && videoIndex === 0 && !videosFinished) {
-    loadEntry(CONFIG.videos[0]);
+  // 動画APIの準備が遅れた場合に、準備ができた時点で1回だけ再生を始める
+  // （以前は「未開始」の間ずっと読み込み直していたため、再生が止まる原因になっていた）
+  if (ytReady && !videoStarted && !videosFinished) {
+    loadEntry(CONFIG.videos[0]); videoStarted = true;
     document.getElementById("video-msg").textContent = "";
+  }
+  // 作業中に動画が止まったままになっていたら（一時停止・読み込み待ちのまま等）、3秒後に再生し直す
+  if (ytReady && videoStarted && !videosFinished && player.getPlayerState) {
+    const st = player.getPlayerState();   // 1＝再生中、3＝読み込み中、2＝一時停止、5＝頭出し済み、-1＝未開始
+    if (st === 1 || st === 3) stoppedSince = null;
+    else if (stoppedSince === null) stoppedSince = Date.now();
+    else if (Date.now() - stoppedSince > 3000 && Date.now() - advancedAt > 3000) {
+      try { player.playVideo(); } catch (e) {}
+      stoppedSince = Date.now(); resumeCount++;
+    }
   }
   // 終了位置を指定した区間は、その位置に来たら次の区間へ進む
   if (currentEnd !== null && Date.now() - advancedAt > 2000) {
@@ -665,6 +684,7 @@ function sample() {
     keys: keyCount,
     vi: videoIndex,
     vt: videoTime(),
+    vs: videoState(),
     hid: document.hidden ? 1 : 0
   });
 }
@@ -870,7 +890,8 @@ let surveyAnswers = {};
 function buildSurvey() {
   surveyItems = [
     { key: "Focus", text: "作業に集中できた" },
-    { key: "Fatigue", text: "首や肩に疲れを感じた" }
+    { key: "Fatigue", text: "首や肩に疲れを感じた" },
+    { key: "Known", text: "動画の内容はすでに知っていた" }
   ];
   if (CONFIG.warn) {
     surveyItems.push({ key: "Annoying", text: "警告がわずらわしかった" });
@@ -942,6 +963,7 @@ function buildCSV() {
     ["PlannedMin", CONFIG.durationMin],
     ["QuitEarly", quitEarly ? 1 : 0],
     ["WarnCount", warnCount],
+    ["VideoResumeCount", resumeCount],   // 動画が止まって自動で再生し直した回数（0が正常）
     ["Videos", CONFIG.videos.join(" ")],
     ["Screen", `${screen.width}x${screen.height}`],
     ["UserAgent", clean(navigator.userAgent)],
@@ -951,8 +973,8 @@ function buildCSV() {
     ["ExportedAt", stamp(new Date())]
   ];
   let csv = meta.map(([k, v]) => `# ${k},${v}`).join("\n") + "\n";
-  csv += "Timestamp,Elapsed_ms,Ear_Dist,Shoulder_Dist,Ratio,Detected,Is_Bad,Is_Warning_Active,Char_Count,Key_Count,Video_Index,Video_Time,Tab_Hidden\n";
-  csv += logs.map(r => [r.ts, r.el, num(r.ear, 2), num(r.sh, 2), num(r.ratio, 4), r.det, r.bad, r.warn, r.chars, r.keys, r.vi, num(r.vt, 1), r.hid].join(",")).join("\n") + "\n";
+  csv += "Timestamp,Elapsed_ms,Ear_Dist,Shoulder_Dist,Ratio,Detected,Is_Bad,Is_Warning_Active,Char_Count,Key_Count,Video_Index,Video_Time,Tab_Hidden,Video_State\n";
+  csv += logs.map(r => [r.ts, r.el, num(r.ear, 2), num(r.sh, 2), num(r.ratio, 4), r.det, r.bad, r.warn, r.chars, r.keys, r.vi, num(r.vt, 1), r.hid, r.vs].join(",")).join("\n") + "\n";
   return csv;
 }
 
