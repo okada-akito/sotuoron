@@ -99,6 +99,15 @@
   textarea { width: 100%; min-height: 200px; margin-top: 16px; padding: 14px; font: inherit; line-height: 1.7; border: 1px solid var(--line); border-radius: var(--radius); resize: vertical; color: var(--ink); }
   .warn-badge { display: none; background: var(--amber); color: #fff; font-weight: 700; padding: 6px 14px; border-radius: var(--radius); }
   .warn-badge.show { display: inline-block; }
+  /* 警告と同時に出す質問（右下の小さなカード。動画と入力欄はふさがない） */
+  .ask { position: fixed; right: 20px; bottom: 20px; z-index: 30; width: 330px; max-width: calc(100vw - 32px); background: var(--paper);
+         border: 2px solid var(--amber); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 14px 16px; }
+  .ask[hidden] { display: none; }
+  .ask-q { font-weight: 700; margin: 6px 0 6px; }
+  .ask-btns { display: flex; gap: 8px; margin-bottom: 6px; }
+  .ask-btns button { flex: 1; padding: 8px 6px; font-size: .95rem; background: var(--paper); color: var(--ink); border: 1px solid var(--line); }
+  .ask-btns button.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+  .ask-time { height: 3px; background: var(--amber); transform-origin: left; margin-top: 6px; }
   .muted { color: var(--slate); font-size: .9rem; }
   .pid { font-size: 1.4rem; font-weight: 700; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
 
@@ -235,6 +244,13 @@
     <span>残り時間 <span class="remain" id="remain">--:--</span></span>
     <span class="warn-badge" id="warn-badge">姿勢を正してください</span>
   </div></div>
+  <div class="ask" id="ask" hidden role="dialog" aria-label="警告についての質問">
+    <div class="ask-q">この警告は</div>
+    <div class="ask-btns"><button type="button" data-q="need" data-v="1">必要</button><button type="button" data-q="need" data-v="0">不要</button></div>
+    <div class="ask-q">今の姿勢は、あなたにとって</div>
+    <div class="ask-btns"><button type="button" data-q="correct" data-v="1">正しい姿勢</button><button type="button" data-q="correct" data-v="0">正しくない姿勢</button></div>
+    <div class="ask-time" id="ask-time"></div>
+  </div>
   <div class="task-main">
     <div class="video-frame"><div id="yt"></div></div>
     <p class="muted" id="video-msg"></p>
@@ -272,12 +288,12 @@
     <details id="rec-box" style="margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
       <summary style="cursor:pointer;color:var(--slate)">実験者用</summary>
       <div class="field" id="prev-field">
-        <label for="in-prev">これまでの回のCSVを選ぶ（第2回以降。複数選べます）</label>
+        <label for="in-prev">第1回を含む、これまでの回のCSVをすべて選ぶ（第2回以降。複数選べます）</label>
         <input type="file" id="in-prev" accept=".csv,text/csv" multiple>
-        <p class="muted">前の回までのデータもまとめて、次の回の秒数を計算し直します。選んでから「データをダウンロードする」を押すと、計算結果もCSVに入ります。</p>
+        <p class="muted">第1回の崩れ方と、前の回までの質問の答えもまとめて、次の回の閾値と秒数を計算します。選んでから「データをダウンロードする」を押すと、計算結果もCSVに入ります。</p>
         <p class="muted" id="prev-msg"></p>
       </div>
-      <h2 id="rec-title">次の回で使う秒数</h2>
+      <h2 id="rec-title">次の回の設定</h2>
       <p class="pid" id="rec-delay"></p>
       <p class="muted" id="rec-detail"></p>
       <div class="row"><a id="rec-link" class="btn-link" target="_blank" rel="noopener">次の回を準備する（新しいタブ）</a></div>
@@ -319,10 +335,23 @@ const GROUPS = {
   C: ["front", "test", "db", "git"],
   D: ["test", "git", "front", "db"]
 };
-// 次の回の秒数の決め方（personal_delay.py と同じ）
-//   崩れの長さのうち「9割がこの長さ以内に収まる」最短の長さ。警告で途中で直された崩れは
-//   「少なくともその長さまでは続いた」として数える（カプラン・マイヤー法）
-const REC = { q: 0.9, minEpisodes: 10, fallback: 5.0, min: 2.0, max: 30.0 };  // 上限30秒＝先行研究（ErgoAssist）の一律30秒より甘くしない
+// ---- 閾値と秒数のパーソナライズ（personal_settings.py と同じ決まり） ----
+//   第2回は全員共通の初期値から始め、警告のたびに2つの質問に答えてもらう。
+//     質問1「この警告は 必要／不要」      → 秒数（警告までの待ち時間）を合わせる
+//     質問2「今の姿勢は 正しい／正しくない」→ 閾値（どこからを崩れとみなすか）を合わせる
+//   閾値と秒数は、回が終わってから決め直す（1回の中では変えない）。
+const INIT = { threshold: 1.09, delay: 10 };          // 第2回の初期値（全員共通）
+const TH = { min: 1.09, max: 1.15, step: 0.005 };     // 閾値の範囲。上限は「本人の好みに合わせすぎて崩れを見逃さない」ため
+const DL = { min: 2, max: 30 };                       // 秒数の範囲（上限30秒＝ErgoAssistの一律30秒）
+// 秒数は「1回の作業で、役に立った警告の数 − じゃまだった警告の数（正味の利益）」が一番大きくなる秒数にする（ベイズ決定理論）。
+//   ① 何秒で鳴らすと「必要」と言われやすいか：ベイズ推定（QUEST と同じ考え方）。
+//      「必要」と答える確率は秒数が長いほど高くなるS字の曲線と考え、その人の境目（50%になる秒数）を全部の答えから推定する。
+//      sig：曲線の傾き（時間の感じ方は割合で変わるので、秒数の対数で考える）、lapse：押し間違いの割合
+//   ② 何秒待つと何回くらい自分で直るか：第1回（警告なし）の崩れが、何秒以上続いたか（次の回の閾値で数え直す）。
+const BAYES = { sig: 0.3, lapse: 0.05, grid: 400 };
+const DL_STEP = 0.1;                                   // 秒数の候補の刻み
+const MIN_ANS = 3;                                     // 答えがこれより少なければ変えない
+const ASK_SEC = 15;                                    // 質問を出しておく時間（秒）。過ぎたら閉じて「無回答」
 // ファイル名に使えない文字だけ取り除く（日本語の名前はそのまま使える）
 const cleanName = s => String(s || "").trim().replace(/[\\/:*?"<>|,\s]+/g, "_").slice(0, 30);
 const parseRound = v => (["1", "2", "3", "4"].includes(String(v)) ? Number(v) : null);
@@ -373,7 +402,11 @@ inDelay.value = Number.isFinite(CONFIG.delay) ? CONFIG.delay : "";
 inTh.value = CONFIG.threshold;
 
 const checkedValue = name => (document.querySelector(`input[name="${name}"]:checked`) || {}).value;
-function syncDelayField() { document.getElementById("delay-field").style.display = ROUND_WARN[parseRound(checkedValue("round"))] ? "block" : "none"; }
+function syncDelayField() {
+  const rd = parseRound(checkedValue("round"));
+  document.getElementById("delay-field").style.display = ROUND_WARN[rd] ? "block" : "none";
+  if (rd === 2 && inDelay.value === "") inDelay.value = INIT.delay;   // 第2回は全員共通の初期値
+}
 document.querySelectorAll('input[name="round"]').forEach(r => r.addEventListener("change", syncDelayField));
 syncDelayField();
 
@@ -592,6 +625,9 @@ summary.addEventListener("keydown", () => { keyCount++; });
 let logs = [];
 let startMs = null, sampler = null, clock = null, running = false;
 let badSince = null, lastBadAt = 0, warningActive = false, warnCount = 0;
+let episodeRatios = [];          // いま続いている崩れの間の Ratio（警告時の姿勢の値に使う）
+let questions = [];              // 警告ごとの質問と答え
+let ask = null;                  // 表示中の質問
 
 document.getElementById("btn-to-task").addEventListener("click", () => {
   if (!baseline) return;
@@ -651,8 +687,8 @@ function sample() {
   // 崩れの判定は personal_delay.py と同じ定義にそろえる：
   // GAP_MS 未満の途切れ（一瞬閾値を下回る・検出が途切れる）は同じ崩れとみなす
   if (bad) {
-    if (badSince === null) badSince = now;
-    lastBadAt = now;
+    if (badSince === null) { badSince = now; episodeRatios = []; }
+    lastBadAt = now; episodeRatios.push(ratio);
   } else if (badSince !== null && now - lastBadAt > CONFIG.gapMs) {
     badSince = null;
   }
@@ -665,6 +701,7 @@ function sample() {
           const u = new SpeechSynthesisUtterance("姿勢を正してください");
           u.lang = "ja-JP"; speechSynthesis.speak(u);
         }
+        openAsk(now, ratio, median(episodeRatios));
       }
     } else if (warningActive) {
       warningActive = false; document.getElementById("warn-badge").classList.remove("show");
@@ -685,6 +722,7 @@ function sample() {
     vi: videoIndex,
     vt: videoTime(),
     vs: videoState(),
+    ask: ask ? 1 : 0,
     hid: document.hidden ? 1 : 0
   });
 }
@@ -707,6 +745,7 @@ function endTask(early) {
   try { camera && camera.stop(); } catch (e) {}
   const stream = camEl.srcObject; if (stream) stream.getTracks().forEach(t => t.stop());
   document.getElementById("warn-badge").classList.remove("show");
+  if (ask) closeAsk(true);
   document.getElementById("pid").textContent = PID;
   document.getElementById("cond-text").textContent = roundLabel();
   document.getElementById("fname").textContent = fileName();
@@ -716,170 +755,249 @@ function endTask(early) {
   show("s-survey");
 }
 
-// ---------- 次の回で使う秒数（この人に合わせた警告までの時間） ----------
-// 崩れを1回ずつ取り出し、その長さの「9割がこの長さ以内に収まる」最短の長さを秒数とする。
-// 警告ありの回で警告が出た崩れは、警告で途中で直された可能性があるため
-// 「少なくともその長さまでは続いた」（打ち切り）として数える（カプラン・マイヤー法）。
-// 崩れの定義は警告の判定・personal_delay.py と同じ（1秒未満の途切れはつなげて1回）。
-let rec = null;            // この回だけで計算した結果
-let recPooled = null;      // これまでの回とまとめて計算した結果
-let prevSessions = [];     // 読み込んだ前の回の崩れ
+// ---------- 警告のときの質問 ----------
+function openAsk(now, ratioNow, ratioEp) {
+  if (ask) closeAsk(true);
+  ask = { idx: questions.length + 1, el: now - startMs, t0: now, ratioNow, ratioEp,
+          threshold: CONFIG.threshold, delay: CONFIG.delay, need: null, correct: null, rtNeed: null, rtCorrect: null };
+  const box = document.getElementById("ask");
+  box.querySelectorAll("button").forEach(b => b.classList.remove("on"));
+  box.hidden = false;
+  const bar = document.getElementById("ask-time");
+  bar.style.transition = "none"; bar.style.transform = "scaleX(1)";
+  requestAnimationFrame(() => { bar.style.transition = `transform ${ASK_SEC}s linear`; bar.style.transform = "scaleX(0)"; });
+  ask.timer = setTimeout(() => closeAsk(true), ASK_SEC * 1000);
+}
+function closeAsk() {
+  if (!ask) return;
+  clearTimeout(ask.timer);
+  const { timer, t0, ...item } = ask;
+  questions.push(item);
+  ask = null;
+  document.getElementById("ask").hidden = true;
+  if (running) summary.focus();
+}
+document.querySelectorAll("#ask button").forEach(btn => btn.addEventListener("click", () => {
+  if (!ask) return;
+  const q = btn.dataset.q, v = Number(btn.dataset.v);
+  ask[q] = v;
+  ask[q === "need" ? "rtNeed" : "rtCorrect"] = Date.now() - ask.t0;
+  btn.parentElement.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === btn));
+  if (ask.need !== null && ask.correct !== null) setTimeout(closeAsk, 250);
+}));
 
-// 0.2秒ごとの記録 [{t(秒), bad(0/1), warn(0/1)}] から崩れを取り出す
+// ---------- 次の回の設定（閾値と秒数） ----------
+// 閾値：これまでの全部の答えを使い、「正しい」と答えた姿勢は崩れとみなさず、
+//       「正しくない」と答えた姿勢は崩れとみなすような境目を探す（間違いが一番少ない値。同点なら今の値に近いほう）。
+//       姿勢の値は、警告までの崩れの間の Ratio の中央値を使う。範囲は TH.min〜TH.max。
+const round1 = (v, k) => Math.round(v / k) * k;
+function nextThreshold(allQs, cur) {
+  const lab = allQs.filter(q => q.correct !== null && Number.isFinite(q.ratioEp));
+  if (lab.length < MIN_ANS) return { value: cur, n: lab.length, errors: null, note: `「今の姿勢」の答えが${lab.length}件しかないため変えない` };
+  let best = null;
+  for (let t = TH.min; t <= TH.max + 1e-9; t += TH.step) {
+    const tt = Math.round(t * 1000) / 1000;
+    const err = lab.filter(q => (q.correct === 1 && q.ratioEp > tt) || (q.correct === 0 && q.ratioEp <= tt)).length;
+    if (!best || err < best.err || (err === best.err && Math.abs(tt - cur) < Math.abs(best.t - cur))) best = { t: tt, err };
+  }
+  return { value: best.t, n: lab.length, errors: best.err, note: "" };
+}
+// 秒数：
+//   ① これまでの全部の回の答えのうち「正しくない姿勢」と答えた警告（そのときの秒数と、必要／不要）から、
+//      その人の境目の見込み（候補ごとの重み）を計算する。「正しい姿勢」と答えた警告は閾値の問題なので使わない。
+//   ② 第1回（警告なし）の記録を、次の回の閾値で数え直し、崩れがそれぞれ何秒まで続いたかを出す。
+//   2〜30秒の各秒数 d について、
+//      役に立った警告の見込み ＝ （d秒以上続いた崩れの数）×（d秒で「必要」と言われる見込み）
+//      じゃまだった警告の見込み ＝ （d秒以上続いた崩れの数）×（d秒で「不要」と言われる見込み）
+//   その差（正味の利益）が一番大きい d を次の回の秒数にする（同じなら短いほう）。
+//   どの秒数でも差がプラスにならない（じゃまな警告のほうが多い）ときは、上限の30秒にする。
+const pNeed = (d, th) => BAYES.lapse + (1 - 2 * BAYES.lapse) / (1 + Math.exp(-(Math.log(d) - Math.log(th)) / BAYES.sig));
+function delayPosterior(qs) {
+  const lo = Math.log(DL.min), hi = Math.log(DL.max), n = BAYES.grid;
+  const grid = Array.from({ length: n }, (_, i) => Math.exp(lo + (hi - lo) * i / (n - 1)));
+  const logp = grid.map(() => 0);
+  qs.forEach(q => {
+    grid.forEach((th, i) => {
+      const p = pNeed(q.delay, th);
+      logp[i] += q.need === 1 ? Math.log(p) : Math.log(1 - p);
+    });
+  });
+  const mx = Math.max(...logp), w = logp.map(v => Math.exp(v - mx)), sum = w.reduce((a, c) => a + c, 0);
+  const wn = w.map(v => v / sum);
+  let acc = 0; const cdf = wn.map(v => (acc += v));
+  const at = q => grid[Math.min(n - 1, cdf.findIndex(c => c >= q))];
+  return { grid, w: wn, median: at(0.5), lo: at(0.1), hi: at(0.9) };
+}
+// 第1回の記録を、閾値 th で作業中と同じ決まり（1秒未満の途切れは同じ崩れ）で数え直し、
+// 崩れごとに「崩れが始まってから、何秒の時点まで警告の対象になっていたか」を返す（作業中の警告の判定と同じ）
+function reachTimes(rows, th, gapMs) {
+  const out = []; let since = null, lastBad = null, reach = 0;
+  rows.forEach(r => {
+    const bad = r.det === 1 && Number.isFinite(r.ratio) && r.ratio > th;
+    if (bad) { if (since === null) { since = r.el; reach = 0; } lastBad = r.el; }
+    else if (since !== null && r.el - lastBad > gapMs) { out.push(reach); since = null; }
+    if (since !== null) reach = Math.max(reach, (r.el - since) / 1000);
+  });
+  if (since !== null) out.push(reach);
+  return out;
+}
+function nextDelay(allQs, cur, r1rows, nextTh) {
+  const use = allQs.filter(q => q.correct === 0 && q.need !== null && Number.isFinite(q.delay));
+  const nNeed = use.filter(q => q.need === 1).length, nNo = use.length - nNeed;
+  const base = { value: cur, n: use.length, nNeed, nNo, lo: null, hi: null, nEp: null, expGood: null, expBad: null, note: "" };
+  if (use.length < MIN_ANS) return { ...base, note: `「正しくない姿勢」での答えが${use.length}件しかないため変えない` };
+  const post = delayPosterior(use);
+  const r1 = v => Math.round(v * 10) / 10;
+  const out = { ...base, lo: r1(post.lo), hi: r1(post.hi) };
+  if (!r1rows) return { ...out, value: null, note: "第1回のCSVを選ぶと秒数を計算します" };
+  const reach = reachTimes(r1rows, nextTh, CONFIG.gapMs);
+  out.nEp = reach.length;
+  let best = null;
+  const steps = Math.round((DL.max - DL.min) / DL_STEP);
+  for (let k = 0; k <= steps; k++) {
+    const d = Math.round((DL.min + k * DL_STEP) * 10) / 10;
+    let ef = 0; for (let i = 0; i < post.grid.length; i++) ef += post.w[i] * pNeed(d, post.grid[i]);
+    const nd = reach.filter(x => x >= d).length;
+    const u = nd * (2 * ef - 1);
+    if (!best || u > best.u) best = { d, u, good: nd * ef, bad: nd * (1 - ef) };
+  }
+  if (best.u <= 0) return { ...out, value: DL.max, expGood: 0, expBad: 0, note: "どの秒数でもじゃまな警告のほうが多い見込みのため、上限の秒数にする" };
+  return { ...out, value: best.d, expGood: r1(best.good), expBad: r1(best.bad) };
+}
+function countAnswers(qs) {
+  const c = { total: qs.length, needYes: 0, needNo: 0, corYes: 0, corNo: 0, missing: 0, cells: { "1-0": 0, "0-0": 0, "0-1": 0, "1-1": 0 } };
+  qs.forEach(q => {
+    if (q.need === 1) c.needYes++; if (q.need === 0) c.needNo++;
+    if (q.correct === 1) c.corYes++; if (q.correct === 0) c.corNo++;
+    if (q.need === null || q.correct === null) c.missing++;
+    else c.cells[`${q.need}-${q.correct}`]++;
+  });
+  return c;
+}
+
+// 崩れの回数などの記録（分析用）
 function extractEpisodes(rows, gapSec) {
   const diffs = rows.slice(1).map((r, i) => r.t - rows[i].t);
   const dt = diffs.length ? median(diffs) : CONFIG.sampleMs / 1000;
-  const eps = [];
-  let start = null, last = null, warned = false;
+  const eps = []; let start = null, last = null;
   rows.forEach(r => {
-    if (r.bad === 1) {
-      if (start === null) { start = r.t; warned = false; }
-      else if (r.t - last > gapSec) { eps.push({ len: last - start + dt, event: !warned }); start = r.t; warned = false; }
-      last = r.t;
-    }
-    if (r.warn === 1 && start !== null) warned = true;   // 警告が出た崩れ＝打ち切り
+    if (r.bad !== 1) return;
+    if (start === null) start = r.t;
+    else if (r.t - last > gapSec) { eps.push(last - start + dt); start = r.t; }
+    last = r.t;
   });
-  if (start !== null) eps.push({ len: last - start + dt, event: !warned });
+  if (start !== null) eps.push(last - start + dt);
   return eps;
 }
-// カプラン・マイヤー法で「9割がこの長さ以内に収まる」長さを求める（打ち切りがなければ普通の90%点）
-function kmQuantile(eps, q) {
-  const s = [...eps].sort((a, b) => a.len - b.len || (b.event - a.event));
-  let S = 1, atRisk = s.length, i = 0;
-  while (i < s.length) {
-    const t = s[i].len; let d = 0, m = 0;
-    while (i < s.length && Math.abs(s[i].len - t) < 1e-9) { if (s[i].event) d++; m++; i++; }
-    if (d > 0) S *= 1 - d / atRisk;
-    if (S <= 1 - q + 1e-12) return t;
-    atRisk -= m;
-  }
-  return NaN;   // 1割以上の崩れが警告まで続いた（9割の点がまだ見えていない）
-}
-function kmSurvivalAt(eps, x) {   // 崩れが x 秒を超えて続く割合（推定）
-  const s = [...eps].sort((a, b) => a.len - b.len || (b.event - a.event));
-  let S = 1, atRisk = s.length, i = 0;
-  while (i < s.length && s[i].len <= x) {
-    const t = s[i].len; let d = 0, m = 0;
-    while (i < s.length && Math.abs(s[i].len - t) < 1e-9) { if (s[i].event) d++; m++; i++; }
-    if (d > 0) S *= 1 - d / atRisk;
-    atRisk -= m;
-  }
-  return S;
-}
-function decideDelay(eps) {
-  const n = eps.length, censored = eps.filter(e => !e.event).length;
-  let delay, raw = NaN, note = "";
-  if (n < REC.minEpisodes) {
-    delay = REC.fallback;
-    note = `崩れが${n}回しかなく推定が不安定なため、暫定値${REC.fallback}秒`;
-  } else {
-    raw = kmQuantile(eps, REC.q);
-    if (!Number.isFinite(raw)) {
-      raw = Math.max(...eps.map(e => e.len));
-      note = "1割以上の崩れが警告まで続いたため、記録された最も長い崩れの長さを使用";
-    }
-    delay = Math.min(REC.max, Math.max(REC.min, raw));
-    if (delay !== raw) note += (note ? "。" : "") + `計算値${raw.toFixed(1)}秒を${REC.min}〜${REC.max}秒の範囲に収めた`;
-  }
-  delay = Math.round(delay * 10) / 10;
-  const lens = eps.map(e => e.len);
-  return { delay, raw, note, n, censored,
-           median: n ? median(lens) : NaN, longest: n ? Math.max(...lens) : NaN,
-           overShare: n ? kmSurvivalAt(eps, delay) : NaN };
-}
-function currentRows() { return logs.map(r => ({ t: r.el / 1000, bad: r.bad, warn: r.warn })); }
 
+let rec = null;            // この回の結果と、次の回の設定
+let prevQuestions = [];    // 読み込んだ前の回の答え
+let round1Rows = null;     // 読み込んだ第1回（警告なし）の記録
 function computeRecommended() {
-  const eps = extractEpisodes(currentRows(), CONFIG.gapMs / 1000);
-  const r = decideDelay(eps);
+  const eps = extractEpisodes(logs.map(r => ({ t: r.el / 1000, bad: r.bad })), CONFIG.gapMs / 1000);
   const t = logs.map(x => x.el / 1000);
-  r.workMin = t.length > 1 ? (t[t.length - 1] - t[0]) / 60 : 0;
-  r.detectedPct = logs.length ? 100 * logs.filter(x => x.det === 1).length / logs.length : 0;
-  r.perHour = r.workMin > 0 ? eps.length / r.workMin * 60 * r.overShare : NaN;
-  r.eps = eps;
+  const r = { n: eps.length, median: eps.length ? median(eps) : NaN, longest: eps.length ? Math.max(...eps) : NaN,
+              detectedPct: logs.length ? 100 * logs.filter(x => x.det === 1).length / logs.length : 0,
+              workMin: t.length > 1 ? (t[t.length - 1] - t[0]) / 60 : 0, ans: countAnswers(questions) };
+  if (!CONFIG.warn) {
+    r.nextTh = { value: INIT.threshold, note: "第2回は全員共通の初期値" };
+    r.nextDl = { value: INIT.delay, note: "第2回は全員共通の初期値" };
+  } else {
+    r.nextTh = nextThreshold([...prevQuestions, ...questions], CONFIG.threshold);
+    r.nextDl = nextDelay([...prevQuestions, ...questions], CONFIG.delay, round1Rows, r.nextTh.value);
+  }
   return r;
 }
-const NEXT_TITLE = { 1: "第2回で使う秒数", 2: "第3回で使う秒数", 3: "第4回で使う秒数", 4: "この人の最終的な秒数（第1〜4回から計算）" };
+const NEXT_TITLE = { 1: "第2回の設定（全員共通の初期値）", 2: "第3回の設定", 3: "第4回の設定", 4: "この人の最終的な設定（第2〜4回の答えから）" };
 function showRecommended() {
   rec = computeRecommended();
   document.getElementById("prev-field").style.display = CONFIG.round >= 2 ? "block" : "none";
   renderRecommended();
 }
 function renderRecommended() {
-  const use = recPooled || rec;
-  document.getElementById("rec-title").textContent = NEXT_TITLE[CONFIG.round] || "次の回で使う秒数";
-  document.getElementById("rec-delay").textContent = `${use.delay} 秒`;
-  const lines = [];
-  if (recPooled) lines.push(`これまでの${recPooled.sessions}回分をまとめて計算（崩れ ${recPooled.n} 回、うち警告で直された ${recPooled.censored} 回）`);
-  else if (CONFIG.round >= 2) lines.push("※前の回のCSVを選ぶと、まとめて計算し直します（選ばないとこの回だけの値になります）");
-  lines.push(`この回：崩れ ${rec.n} 回（中央値 ${num(rec.median, 1) || "-"} 秒・最長 ${num(rec.longest, 1) || "-"} 秒）、この回だけで出した秒数 ${rec.delay} 秒`);
-  lines.push(`この回の警告の回数 ${warnCount} 回` + (CONFIG.warn && rec.n ? `（崩れ ${rec.n} 回のうち ${(100 * rec.censored / rec.n).toFixed(0)}%。目安は約10%）` : "") + `、姿勢を検出できた割合 ${rec.detectedPct.toFixed(0)}%`);
-  if (use.note) lines.push("※" + use.note);
+  document.getElementById("rec-title").textContent = NEXT_TITLE[CONFIG.round] || "次の回の設定";
+  document.getElementById("rec-delay").textContent = `閾値 ${rec.nextTh.value.toFixed(3).replace(/0$/, "")}　／　秒数 ` +
+    (rec.nextDl.value === null ? "―（第1回のCSVを選んでください）" : `${rec.nextDl.value} 秒`);
+  const a = rec.ans, lines = [];
+  lines.push(`この回：崩れ ${rec.n} 回（中央値 ${num(rec.median, 1) || "-"} 秒・最長 ${num(rec.longest, 1) || "-"} 秒）、姿勢を検出できた割合 ${rec.detectedPct.toFixed(0)}%`);
+  if (CONFIG.warn) {
+    lines.push(`警告 ${a.total} 回（無回答・答えが途中 ${a.missing} 回）`);
+    lines.push(`必要×正しくない ${a.cells["1-0"]} ／ 不要×正しくない ${a.cells["0-0"]} ／ 不要×正しい ${a.cells["0-1"]} ／ 必要×正しい ${a.cells["1-1"]}`);
+    lines.push(`閾値：${CONFIG.threshold} → ${rec.nextTh.value}（答え ${rec.nextTh.n} 件${rec.nextTh.errors !== null ? "、合わなかった答え " + rec.nextTh.errors + " 件" : ""}）` + (rec.nextTh.note ? "　※" + rec.nextTh.note : ""));
+    const dl = rec.nextDl;
+    lines.push(`秒数：${CONFIG.delay} → ${dl.value === null ? "―" : dl.value + " 秒"}（正しくない姿勢での答え ${dl.n} 件：必要 ${dl.nNeed}・不要 ${dl.nNo}` +
+      (dl.lo !== null ? `、境目はおそらく ${dl.lo}〜${dl.hi} 秒` : "") + "）" + (dl.note ? "　※" + dl.note : ""));
+    if (dl.expGood !== null) lines.push(`　次の回の見込み（第1回と同じ長さの作業で）：役に立つ警告 ${dl.expGood} 回・じゃまな警告 ${dl.expBad} 回（第1回の崩れ ${dl.nEp} 回から）`);
+    if (!round1Rows || (CONFIG.round >= 3 && !prevQuestions.length)) lines.push("※第1回を含む、これまでの回のCSVをすべて選んでください（第1回の崩れ方と、前の回の答えを使って計算します）");
+  }
   if (rec.detectedPct < 80) lines.push("※検出できなかった時間が多いため、カメラの映り方を確認してください");
   document.getElementById("rec-detail").innerHTML = lines.map(s => s.replace(/[<>&]/g, "")).join("<br>");
   const link = document.getElementById("rec-link");
-  if (CONFIG.round < 4) {
-    const next = CONFIG.round + 1;
-    const q = { name: PID, round: next, th: CONFIG.threshold };
+  if (CONFIG.round < 4 && rec.nextDl.value !== null) {
+    const q = { name: PID, round: CONFIG.round + 1, th: rec.nextTh.value, delay: rec.nextDl.value };
     if (CONFIG.group) q.group = CONFIG.group;
     if (params.get("dur")) q.dur = CONFIG.durationMin;
-    if (ROUND_WARN[next]) q.delay = use.delay;
     link.href = location.pathname + "?" + new URLSearchParams(q).toString();
-    link.textContent = `第${next}回を準備する（新しいタブ）`;
+    link.textContent = `第${CONFIG.round + 1}回を準備する（新しいタブ）`;
     link.style.display = "inline-block";
   } else {
     link.style.display = "none";
   }
 }
 
-// 前の回のCSVを読み込む
-function parseSessionCSV(text) {
-  const meta = {}; const lines = text.replace(/^﻿/, "").split(/\r?\n/);
-  let i = 0;
-  for (; i < lines.length && lines[i].startsWith("#"); i++) {
-    const body = lines[i].replace(/^#\s*/, ""); const k = body.indexOf(",");
-    if (k > 0) meta[body.slice(0, k).trim()] = body.slice(k + 1).trim();
+// 前の回のCSVから、質問の答えを読み込む（「# Q,」で始まる行）
+function parseQuestions(text) {
+  const meta = {}, qs = [];
+  for (const line of text.replace(/^﻿/, "").split(/\r?\n/)) {
+    if (!line.startsWith("#")) break;
+    const body = line.replace(/^#\s*/, ""); const k = body.indexOf(",");
+    if (k < 0) continue;
+    const key = body.slice(0, k).trim(), val = body.slice(k + 1);
+    if (key === "Q") {
+      const c = val.split(",");
+      const nz = v => (v === "" ? null : Number(v));
+      qs.push({ idx: nz(c[0]), el: nz(c[1]), ratioNow: nz(c[2]), ratioEp: nz(c[3]), threshold: nz(c[4]), delay: nz(c[5]),
+                need: nz(c[6]), correct: nz(c[7]), rtNeed: nz(c[8]), rtCorrect: nz(c[9]) });
+    } else meta[key] = val.trim();
   }
-  const head = (lines[i] || "").split(",");
-  const ix = n => head.indexOf(n);
-  const iEl = ix("Elapsed_ms"), iBad = ix("Is_Bad"), iWarn = ix("Is_Warning_Active");
-  if (iEl < 0 || iBad < 0) throw new Error("実験ページのCSVではないようです");
+  return { meta, qs };
+}
+// 前の回のCSVから、0.2秒ごとの記録（経過ミリ秒・検出・比）を読み込む（第1回の崩れ方を数え直すため）
+function parseRows(text) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const h = lines.findIndex(l => l.startsWith("Timestamp,"));
+  if (h < 0) return [];
+  const cols = lines[h].split(","), iEl = cols.indexOf("Elapsed_ms"), iDet = cols.indexOf("Detected"), iR = cols.indexOf("Ratio");
   const rows = [];
-  for (i++; i < lines.length; i++) {
+  for (let i = h + 1; i < lines.length; i++) {
     if (!lines[i]) continue;
     const c = lines[i].split(",");
-    const t = parseFloat(c[iEl]) / 1000; if (!Number.isFinite(t)) continue;
-    rows.push({ t, bad: Number(c[iBad]) === 1 ? 1 : 0, warn: iWarn >= 0 && Number(c[iWarn]) === 1 ? 1 : 0 });
+    rows.push({ el: Number(c[iEl]), det: Number(c[iDet]), ratio: c[iR] === "" ? NaN : Number(c[iR]) });
   }
-  const gap = parseFloat(meta.GapMs || "1000") / 1000;
-  return { meta, eps: extractEpisodes(rows, gap) };
+  return rows;
 }
 document.getElementById("in-prev").addEventListener("change", async ev => {
-  const msg = document.getElementById("prev-msg");
-  const notes = []; prevSessions = [];
-  const thisStart = stamp(new Date(startMs));
-  const seen = new Set([thisStart]);
+  const notes = []; prevQuestions = []; round1Rows = null;
+  const seen = new Set([stamp(new Date(startMs))]);
   for (const f of ev.target.files) {
     try {
-      const s = parseSessionCSV(await f.text());
-      const key = s.meta.StartedAt || f.name;
-      const nm = s.meta.Name || s.meta.Subject || "";
+      const s = parseQuestions(await f.text());
+      const key = s.meta.StartedAt || f.name, nm = s.meta.Name || "";
       if (seen.has(key)) { notes.push(`${f.name}：この回と同じ、または重複のため使いません`); continue; }
       if (nm && nm !== PID) { notes.push(`${f.name}：名前が違うため使いません（${nm}）`); continue; }
       if (s.meta.Round && Number(s.meta.Round) >= CONFIG.round) { notes.push(`${f.name}：この回より後の回のため使いません`); continue; }
-      seen.add(key); prevSessions.push(s);
-      notes.push(`${f.name}：${s.meta.Round ? "第" + s.meta.Round + "回" : "読み込み"}（崩れ ${s.eps.length} 回）`);
+      seen.add(key);
+      if (s.meta.Round === "1" || s.meta.Warning === "0") {
+        round1Rows = parseRows(await f.text());
+        notes.push(`${f.name}：第1回（記録 ${round1Rows.length} 行）`);
+      } else {
+        prevQuestions.push(...s.qs);
+        notes.push(`${f.name}：${s.meta.Round ? "第" + s.meta.Round + "回" : "読み込み"}（答え ${s.qs.length} 件）`);
+      }
     } catch (e) { notes.push(`${f.name}：読み込めませんでした（${e.message}）`); }
   }
-  if (prevSessions.length) {
-    const all = [...prevSessions.flatMap(s => s.eps), ...rec.eps];
-    recPooled = decideDelay(all);
-    recPooled.sessions = prevSessions.length + 1;
-    recPooled.files = prevSessions.map(s => s.meta.Round ? "R" + s.meta.Round : "?").join(" ");
-  } else {
-    recPooled = null;
-  }
-  msg.textContent = notes.join(" ／ ");
+  document.getElementById("prev-msg").textContent = notes.join(" ／ ");
+  rec = computeRecommended();
   renderRecommended();
 });
 
@@ -897,6 +1015,7 @@ function buildSurvey() {
     surveyItems.push({ key: "Annoying", text: "警告がわずらわしかった" });
     surveyItems.push({ key: "Interrupt", text: "警告で作業が中断された" });
     surveyItems.push({ key: "Helpful", text: "警告は姿勢を直すのに役立った" });
+    surveyItems.push({ key: "AskBurden", text: "警告のときの質問に答えるのが負担だった" });
   }
   const box = document.getElementById("survey-items");
   box.innerHTML = "";
@@ -941,18 +1060,26 @@ function buildCSV() {
     ["Group", CONFIG.group || ""],
     ["Video", CONFIG.videoOverride.length ? "直接指定" : (CONFIG.video ? VIDEOS[CONFIG.video].label : "")],
     ["StartedAt", stamp(new Date(startMs))],
-    // この回だけで計算した秒数（崩れの長さの9割点。警告で直された崩れは打ち切りとして扱う）
-    ["SessionDelaySec", rec ? rec.delay : ""],
     ["SessionEpisodes", rec ? rec.n : ""],
-    ["SessionCensored", rec ? rec.censored : ""],
     ["SessionMedianSec", rec ? num(rec.median, 2) : ""],
-    ["SessionNote", rec ? clean(rec.note) : ""],
-    // これまでの回とまとめて計算した次の回の秒数（前の回のCSVを読み込んだときだけ）
-    ["NextDelaySec", recPooled ? recPooled.delay : (rec && CONFIG.round === 1 ? rec.delay : "")],
-    ["NextDelaySessions", recPooled ? recPooled.sessions : (rec && CONFIG.round === 1 ? 1 : "")],
-    ["NextDelayEpisodes", recPooled ? recPooled.n : ""],
-    ["NextDelayCensored", recPooled ? recPooled.censored : ""],
-    ["NextDelayNote", recPooled ? clean(recPooled.note) : ""],
+    // 質問の答えの数（第2〜4回）
+    ["Ans_Total", rec ? rec.ans.total : ""],
+    ["Ans_NeedYes_CorrectNo", rec ? rec.ans.cells["1-0"] : ""],
+    ["Ans_NeedNo_CorrectNo", rec ? rec.ans.cells["0-0"] : ""],
+    ["Ans_NeedNo_CorrectYes", rec ? rec.ans.cells["0-1"] : ""],
+    ["Ans_NeedYes_CorrectYes", rec ? rec.ans.cells["1-1"] : ""],
+    ["Ans_Missing", rec ? rec.ans.missing : ""],
+    // 次の回の設定（第4回では、この人の最終的な設定）
+    ["NextThreshold", rec ? rec.nextTh.value : ""],
+    ["NextThresholdAnswers", rec && rec.nextTh.n !== undefined ? rec.nextTh.n : ""],
+    ["NextThresholdNote", rec ? clean(rec.nextTh.note || "") : ""],
+    ["NextDelaySec", rec && rec.nextDl.value !== null ? rec.nextDl.value : ""],
+    ["NextDelayRange80", rec && rec.nextDl.lo != null ? `${rec.nextDl.lo}-${rec.nextDl.hi}` : ""],   // 境目（必要と不要が半々になる秒数）の見込みの範囲（80%）
+    ["NextDelayExpGood", rec && rec.nextDl.expGood != null ? rec.nextDl.expGood : ""],   // 次の回の見込み：役に立つ警告の数（第1回の崩れ方から）
+    ["NextDelayExpBad", rec && rec.nextDl.expBad != null ? rec.nextDl.expBad : ""],     // 次の回の見込み：じゃまな警告の数
+    ["Round1EpisodesUsed", rec && rec.nextDl.nEp != null ? rec.nextDl.nEp : ""],
+    ["NextDelayNote", rec ? clean(rec.nextDl.note || "") : ""],
+    ["PrevAnswersUsed", prevQuestions.length],
     ["Threshold", CONFIG.threshold],
     ["Metric", "Ratio = (両耳間隔/肩幅) / 基準姿勢の(両耳間隔/肩幅)"],
     ["BaselineEar", baseline.ear.toFixed(2)],
@@ -973,8 +1100,12 @@ function buildCSV() {
     ["ExportedAt", stamp(new Date())]
   ];
   let csv = meta.map(([k, v]) => `# ${k},${v}`).join("\n") + "\n";
-  csv += "Timestamp,Elapsed_ms,Ear_Dist,Shoulder_Dist,Ratio,Detected,Is_Bad,Is_Warning_Active,Char_Count,Key_Count,Video_Index,Video_Time,Tab_Hidden,Video_State\n";
-  csv += logs.map(r => [r.ts, r.el, num(r.ear, 2), num(r.sh, 2), num(r.ratio, 4), r.det, r.bad, r.warn, r.chars, r.keys, r.vi, num(r.vt, 1), r.hid, r.vs].join(",")).join("\n") + "\n";
+  // 警告ごとの質問と答え（1行1件。need/correct：1＝必要・正しい、0＝不要・正しくない、空欄＝無回答。rt＝答えるまでのミリ秒）
+  csv += "# Q_Columns,idx,elapsed_ms,ratio_at_warning,ratio_episode_median,threshold,delay_sec,need,correct,rt_need_ms,rt_correct_ms\n";
+  csv += questions.map(q => "# Q," + [q.idx, q.el, num(q.ratioNow, 4), num(q.ratioEp, 4), q.threshold, q.delay,
+    q.need ?? "", q.correct ?? "", q.rtNeed ?? "", q.rtCorrect ?? ""].join(",")).join("\n") + (questions.length ? "\n" : "");
+  csv += "Timestamp,Elapsed_ms,Ear_Dist,Shoulder_Dist,Ratio,Detected,Is_Bad,Is_Warning_Active,Char_Count,Key_Count,Video_Index,Video_Time,Tab_Hidden,Video_State,Ask_Open\n";
+  csv += logs.map(r => [r.ts, r.el, num(r.ear, 2), num(r.sh, 2), num(r.ratio, 4), r.det, r.bad, r.warn, r.chars, r.keys, r.vi, num(r.vt, 1), r.hid, r.vs, r.ask].join(",")).join("\n") + "\n";
   return csv;
 }
 
