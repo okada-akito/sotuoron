@@ -285,18 +285,19 @@
     </div>
     <p class="muted">ファイルを送るまで、このページは閉じないでください。</p>
 
-    <details id="rec-box" style="margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
+    <details id="rec-box" open style="margin-top:32px;border-top:1px solid var(--line);padding-top:16px">
       <summary style="cursor:pointer;color:var(--slate)">実験者用</summary>
-      <div class="field" id="prev-field">
-        <label for="in-prev">第1回を含む、これまでの回のCSVをすべて選ぶ（第2回以降。複数選べます）</label>
-        <input type="file" id="in-prev" accept=".csv,text/csv" multiple>
-        <p class="muted">第1回の崩れ方と、前の回までの質問の答えもまとめて、次の回の閾値と秒数を計算します。選んでから「データをダウンロードする」を押すと、計算結果もCSVに入ります。</p>
-        <p class="muted" id="prev-msg"></p>
-      </div>
       <h2 id="rec-title">次の回の設定</h2>
       <p class="pid" id="rec-delay"></p>
+      <p class="muted" id="prev-msg"></p>
       <p class="muted" id="rec-detail"></p>
       <div class="row"><a id="rec-link" class="btn-link" target="_blank" rel="noopener">次の回を準備する（新しいタブ）</a></div>
+      <div class="field" id="prev-field" style="margin-top:20px">
+        <label for="in-prev">別のパソコンで行った回があるときだけ：第1回を含む、これまでの回のCSVをすべて選ぶ</label>
+        <input type="file" id="in-prev" accept=".csv,text/csv" multiple>
+        <p class="muted">同じパソコン・同じブラウザで行った回は、自動で読み込まれます（選ぶ必要はありません）。CSVを選ぶと、自動で読み込んだデータの代わりに、選んだCSVで計算し直します。</p>
+        <button type="button" id="btn-clear-hist" class="btn-link" style="font-size:.85rem">この人の、このパソコンに保存された記録を消す</button>
+      </div>
     </details>
   </div>
 </section>
@@ -893,6 +894,40 @@ function extractEpisodes(rows, gapSec) {
 let rec = null;            // この回の結果と、次の回の設定
 let prevQuestions = [];    // 読み込んだ前の回の答え
 let round1Rows = null;     // 読み込んだ第1回（警告なし）の記録
+let prevSource = "";       // 前の回のデータをどこから読んだか（"browser"＝このパソコンに保存された記録、"csv"＝選んだCSV）
+
+// ---------- 前の回のデータを、このパソコン（ブラウザ）に保存しておく ----------
+// 同じパソコン・同じブラウザで続けて行えば、終了画面でCSVを選ばなくても次の回の閾値と秒数が出る。
+// 保存できない・消えていた場合は、これまでどおりCSVを選べば計算できる。
+// 保存する値は、CSVに書き出す値と同じ丸め方にそろえる（CSVから計算した場合や Python と同じ結果になるように）。
+const HIST_KEY = "posture_hist_v1";
+const r4 = v => (Number.isFinite(v) ? Number(v.toFixed(4)) : null);
+function histLoad() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "{}") || {}; } catch (e) { return {}; } }
+function histSave(h) { try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); return true; } catch (e) { return false; } }
+function saveThisRound() {
+  const h = histLoad(), mine = h[PID] || (h[PID] = {});
+  const entry = { startedAt: stamp(new Date(startMs)), threshold: CONFIG.threshold, delay: CONFIG.warn ? CONFIG.delay : null,
+                  qs: questions.map(q => ({ ...q, ratioNow: r4(q.ratioNow), ratioEp: r4(q.ratioEp) })) };
+  if (CONFIG.round === 1) entry.rows = logs.map(r => [r.el, r.det, r4(r.ratio)]);
+  mine[CONFIG.round] = entry;
+  // 後の回の古い記録（やり直し前のもの）が残っていると混ざるので消す
+  Object.keys(mine).forEach(k => { if (Number(k) > CONFIG.round) delete mine[k]; });
+  return histSave(h);
+}
+function loadFromHistory() {
+  prevQuestions = []; round1Rows = null; prevSource = "";
+  const mine = histLoad()[PID] || {}, used = [];
+  for (let r = 1; r < CONFIG.round; r++) {
+    const e = mine[r]; if (!e) continue;
+    if (r === 1 && Array.isArray(e.rows)) round1Rows = e.rows.map(([el, det, ratio]) => ({ el, det, ratio: ratio === null ? NaN : ratio }));
+    if (Array.isArray(e.qs)) prevQuestions.push(...e.qs);
+    used.push(r);
+  }
+  if (used.length) prevSource = "browser";
+  const missing = [];
+  for (let r = 1; r < CONFIG.round; r++) if (!used.includes(r)) missing.push(r);
+  return { used, missing };
+}
 function computeRecommended() {
   const eps = extractEpisodes(logs.map(r => ({ t: r.el / 1000, bad: r.bad })), CONFIG.gapMs / 1000);
   const t = logs.map(x => x.el / 1000);
@@ -910,6 +945,15 @@ function computeRecommended() {
 }
 const NEXT_TITLE = { 1: "第2回の設定（全員共通の初期値）", 2: "第3回の設定", 3: "第4回の設定", 4: "この人の最終的な設定（第2〜4回の答えから）" };
 function showRecommended() {
+  const saved = saveThisRound();
+  if (CONFIG.round >= 2) {
+    const { used, missing } = loadFromHistory();
+    const msg = [];
+    if (used.length) msg.push(`このパソコンに保存されていた${used.map(r => "第" + r + "回").join("・")}の記録を使って計算しました。`);
+    if (missing.length) msg.push(`${missing.map(r => "第" + r + "回").join("・")}の記録がこのパソコンにありません。別のパソコンで行った場合は、下でCSVを選んでください。`);
+    document.getElementById("prev-msg").textContent = msg.join(" ");
+  }
+  if (!saved) document.getElementById("prev-msg").textContent += "（この回の記録をこのパソコンに保存できませんでした。次の回ではCSVを選んでください）";
   rec = computeRecommended();
   document.getElementById("prev-field").style.display = CONFIG.round >= 2 ? "block" : "none";
   renderRecommended();
@@ -928,7 +972,7 @@ function renderRecommended() {
     lines.push(`秒数：${CONFIG.delay} → ${dl.value === null ? "―" : dl.value + " 秒"}（正しくない姿勢での答え ${dl.n} 件：必要 ${dl.nNeed}・不要 ${dl.nNo}` +
       (dl.lo !== null ? `、境目はおそらく ${dl.lo}〜${dl.hi} 秒` : "") + "）" + (dl.note ? "　※" + dl.note : ""));
     if (dl.expGood !== null) lines.push(`　次の回の見込み（第1回と同じ長さの作業で）：役に立つ警告 ${dl.expGood} 回・じゃまな警告 ${dl.expBad} 回（第1回の崩れ ${dl.nEp} 回から）`);
-    if (!round1Rows || (CONFIG.round >= 3 && !prevQuestions.length)) lines.push("※第1回を含む、これまでの回のCSVをすべて選んでください（第1回の崩れ方と、前の回の答えを使って計算します）");
+    if (!round1Rows) lines.push("※第1回の記録がないため秒数を計算できません。第1回を含む、これまでの回のCSVを選んでください");
   }
   if (rec.detectedPct < 80) lines.push("※検出できなかった時間が多いため、カメラの映り方を確認してください");
   document.getElementById("rec-detail").innerHTML = lines.map(s => s.replace(/[<>&]/g, "")).join("<br>");
@@ -977,7 +1021,7 @@ function parseRows(text) {
   return rows;
 }
 document.getElementById("in-prev").addEventListener("change", async ev => {
-  const notes = []; prevQuestions = []; round1Rows = null;
+  const notes = []; prevQuestions = []; round1Rows = null; prevSource = "csv";
   const seen = new Set([stamp(new Date(startMs))]);
   for (const f of ev.target.files) {
     try {
@@ -999,6 +1043,12 @@ document.getElementById("in-prev").addEventListener("change", async ev => {
   document.getElementById("prev-msg").textContent = notes.join(" ／ ");
   rec = computeRecommended();
   renderRecommended();
+});
+
+document.getElementById("btn-clear-hist").addEventListener("click", () => {
+  if (!confirm(`${PID} さんの、このパソコンに保存された記録（全部の回）を消します。よろしいですか？`)) return;
+  const h = histLoad(); delete h[PID]; histSave(h);
+  document.getElementById("prev-msg").textContent = "このパソコンに保存された記録を消しました。";
 });
 
 // ---------- 作業後のアンケート（5段階） ----------
@@ -1080,6 +1130,7 @@ function buildCSV() {
     ["Round1EpisodesUsed", rec && rec.nextDl.nEp != null ? rec.nextDl.nEp : ""],
     ["NextDelayNote", rec ? clean(rec.nextDl.note || "") : ""],
     ["PrevAnswersUsed", prevQuestions.length],
+    ["PrevSource", prevSource],   // 前の回のデータの読み込み元（browser＝このパソコンに保存された記録、csv＝選んだCSV）
     ["Threshold", CONFIG.threshold],
     ["Metric", "Ratio = (両耳間隔/肩幅) / 基準姿勢の(両耳間隔/肩幅)"],
     ["BaselineEar", baseline.ear.toFixed(2)],
