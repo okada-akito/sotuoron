@@ -162,6 +162,44 @@
   </div>
 </section>
 
+<!-- ================= 0'. はじめの画面（参加者用：URLに ?p=1） ================= -->
+<section id="s-start" class="screen">
+  <div class="wrap">
+    <h1>姿勢の実験</h1>
+    <div class="field">
+      <label>何回目ですか</label>
+      <div class="choices">
+        <label><input type="radio" name="pround" value="first" id="pround-first">第1回（はじめて）</label>
+        <label><input type="radio" name="pround" value="next" id="pround-next">第2回以降</label>
+      </div>
+    </div>
+    <div id="first-field" style="display:none">
+      <div class="field">
+        <label for="in-pid">番号（説明会でお伝えした番号。例：P01）</label>
+        <input type="text" id="in-pid" maxlength="10" style="font:inherit;width:8em;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);">
+      </div>
+      <div class="field">
+        <label>グループ（説明会でお伝えしたもの）</label>
+        <div class="choices">
+          <label><input type="radio" name="pgroup" value="A" id="pgroup-A">A</label>
+          <label><input type="radio" name="pgroup" value="B" id="pgroup-B">B</label>
+          <label><input type="radio" name="pgroup" value="C" id="pgroup-C">C</label>
+          <label><input type="radio" name="pgroup" value="D" id="pgroup-D">D</label>
+        </div>
+      </div>
+    </div>
+    <div id="next-field" style="display:none">
+      <div class="field">
+        <label for="in-start-prev">前の回のCSVファイルを選んでください（前の回に送ったファイルと同じもの）</label>
+        <input type="file" id="in-start-prev" accept=".csv,text/csv">
+      </div>
+    </div>
+    <p class="pid" id="start-info"></p>
+    <p class="alert" id="start-msg" style="display:none"></p>
+    <div class="row"><button id="btn-start" disabled>始める</button></div>
+  </div>
+</section>
+
 <!-- ================= 1. 説明と同意 ================= -->
 <section id="s-consent" class="screen">
   <div class="wrap">
@@ -317,7 +355,8 @@
 //   dur  : 作業時間（分。通常30。閾値の確認などで短くしたいときに ?dur=3 のようにつける）
 //   v    : 動画を直接指定するとき（カンマ区切り。指定するとグループの動画の代わりに使う）
 //   to   : データの送付先（終了画面に表示）
-//   lock : 1 のとき設定画面を飛ばす（遠隔配布用）
+//   lock : 1 のとき設定画面を飛ばし、終了画面の「実験者用」も出さない（回ごとのURLを配る場合）
+//   p    : 1 のとき参加者用のはじめの画面を出す（全員同じURL。第2回以降は前の回のCSVを選ぶ）
 // ============================================================
 const params = new URLSearchParams(location.search);
 const ROUND_WARN = { 1: false, 2: true, 3: true, 4: true };    // なし→あり→あり→あり
@@ -436,7 +475,82 @@ document.getElementById("btn-settings").addEventListener("click", () => {
   show("s-consent");
 });
 
+// ---------- 0'. はじめの画面（参加者用：URLに ?p=1 をつける。全員同じURL） ----------
+//   第1回：番号とグループを入れる（閾値は全員共通の 1.09）。
+//   第2回以降：前の回のCSVを1つ選ぶ。そのCSVから、番号・グループ・次の回・閾値・秒数を読み取り、
+//              第1回の記録とこれまでの答え（CSVに引き継いで入っている）も読み込む。閾値と秒数は画面に出さない。
+const PMODE = params.get("p") === "1";
+let startPlan = null;   // 第2回以降：前の回のCSVから読み取った、この回の設定
+function setStartMsg(text) {
+  const m = document.getElementById("start-msg");
+  m.textContent = text || ""; m.style.display = text ? "block" : "none";
+}
+function syncStartFields() {
+  const v = checkedValue("pround");
+  document.getElementById("first-field").style.display = v === "first" ? "block" : "none";
+  document.getElementById("next-field").style.display = v === "next" ? "block" : "none";
+  document.getElementById("start-info").textContent = v === "next" && startPlan ? startPlan.info : "";
+  document.getElementById("btn-start").disabled = !v || (v === "next" && !startPlan);
+  setStartMsg("");
+}
+document.querySelectorAll('input[name="pround"]').forEach(r => r.addEventListener("change", syncStartFields));
+document.getElementById("in-start-prev").addEventListener("change", async ev => {
+  startPlan = null; setStartMsg("");
+  const f = ev.target.files[0];
+  if (f) {
+    try {
+      const text = await f.text();
+      const s = parseQuestions(text);
+      const prevRound = parseRound(s.meta.Round), group = parseGroup(s.meta.Group), name = cleanName(s.meta.Name);
+      if (!prevRound || !group || !name) throw new Error("この実験のCSVファイルではないようです。前の回に保存したファイルを選んでください。");
+      if (prevRound >= 4) throw new Error("このファイルは第4回のものです。4回すべて終わっています。");
+      const r1 = s.r1 ? s.r1 : (prevRound === 1 ? parseRows(text) : null);
+      const allQs = [...s.pqs, ...s.qs.map(q => ({ ...q, round: prevRound }))];
+      let th, delay;
+      if (prevRound === 1) { th = INIT.threshold; delay = INIT.delay; }
+      else {
+        th = parseFloat(s.meta.NextThreshold); delay = parseFloat(s.meta.NextDelaySec);
+        if (!Number.isFinite(th)) th = nextThreshold(allQs, parseFloat(s.meta.Threshold)).value;
+        if (!Number.isFinite(delay)) {
+          const d = nextDelay(allQs, parseFloat(s.meta.WarnDelaySec), r1, th);
+          delay = d.value;
+        }
+      }
+      if (!(th > 1 && th <= 2) || !(delay > 0 && delay <= 600)) throw new Error("前の回のデータが足りないため、次の回の設定を決められません。実験者に連絡してください。");
+      if (!r1) throw new Error("第1回の記録が見つかりません。実験者に連絡してください。");
+      startPlan = { name, group, round: prevRound + 1, th, delay, r1, allQs,
+                    info: `${name} さん　次は 第${prevRound + 1}回 です。よければ「始める」を押してください。` };
+    } catch (e) { setStartMsg(e.message); }
+  }
+  syncStartFields();
+});
+document.getElementById("btn-start").addEventListener("click", () => {
+  const v = checkedValue("pround");
+  if (v === "first") {
+    const name = cleanName(document.getElementById("in-pid").value).toUpperCase();
+    const group = parseGroup(checkedValue("pgroup"));
+    const errors = [];
+    if (!name) errors.push("番号を入力してください。");
+    if (!group) errors.push("グループを選んでください。");
+    if (errors.length) { setStartMsg(errors.join(" ")); return; }
+    PID = name; CONFIG.round = 1; CONFIG.group = group; CONFIG.threshold = INIT.threshold; CONFIG.delay = NaN;
+  } else if (v === "next" && startPlan) {
+    PID = startPlan.name; CONFIG.round = startPlan.round; CONFIG.group = startPlan.group;
+    CONFIG.threshold = startPlan.th; CONFIG.delay = startPlan.delay;
+    round1Rows = startPlan.r1; prevQuestions = startPlan.allQs; prevSource = "csv";
+  } else return;
+  applyRoundAndVideos();
+  show("s-consent");
+});
+if (PMODE) {
+  document.getElementById("rec-box").style.display = "none";
+  show("s-start");
+}
+
 if (params.get("lock") === "1") {
+  // 参加者が自宅で行う配布用URLでは、終了画面の「実験者用」（次の回の閾値・秒数と答えの内訳）を出さない。
+  // 計算結果はCSV（NextThreshold・NextDelaySec）に入るので、実験者はCSVで確認する。
+  document.getElementById("rec-box").style.display = "none";
   // 配布用URLの書き間違いで、意図しない条件のまま実験が進むのを防ぐ
   const urlErrors = [];
   if (!PID) urlErrors.push("name（名前）が指定されていません。");
@@ -907,7 +1021,7 @@ function histSave(h) { try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); 
 function saveThisRound() {
   const h = histLoad(), mine = h[PID] || (h[PID] = {});
   const entry = { startedAt: stamp(new Date(startMs)), threshold: CONFIG.threshold, delay: CONFIG.warn ? CONFIG.delay : null,
-                  qs: questions.map(q => ({ ...q, ratioNow: r4(q.ratioNow), ratioEp: r4(q.ratioEp) })) };
+                  qs: questions.map(q => ({ ...q, round: CONFIG.round, ratioNow: r4(q.ratioNow), ratioEp: r4(q.ratioEp) })) };
   if (CONFIG.round === 1) entry.rows = logs.map(r => [r.el, r.det, r4(r.ratio)]);
   mine[CONFIG.round] = entry;
   // 後の回の古い記録（やり直し前のもの）が残っていると混ざるので消す
@@ -946,7 +1060,7 @@ function computeRecommended() {
 const NEXT_TITLE = { 1: "第2回の設定（全員共通の初期値）", 2: "第3回の設定", 3: "第4回の設定", 4: "この人の最終的な設定（第2〜4回の答えから）" };
 function showRecommended() {
   const saved = saveThisRound();
-  if (CONFIG.round >= 2) {
+  if (CONFIG.round >= 2 && prevSource !== "csv") {
     const { used, missing } = loadFromHistory();
     const msg = [];
     if (used.length) msg.push(`このパソコンに保存されていた${used.map(r => "第" + r + "回").join("・")}の記録を使って計算しました。`);
@@ -991,7 +1105,7 @@ function renderRecommended() {
 
 // 前の回のCSVから、質問の答えを読み込む（「# Q,」で始まる行）
 function parseQuestions(text) {
-  const meta = {}, qs = [];
+  const meta = {}, qs = [], pqs = []; let r1 = null;
   for (const line of text.replace(/^﻿/, "").split(/\r?\n/)) {
     if (!line.startsWith("#")) break;
     const body = line.replace(/^#\s*/, ""); const k = body.indexOf(",");
@@ -1002,9 +1116,21 @@ function parseQuestions(text) {
       const nz = v => (v === "" ? null : Number(v));
       qs.push({ idx: nz(c[0]), el: nz(c[1]), ratioNow: nz(c[2]), ratioEp: nz(c[3]), threshold: nz(c[4]), delay: nz(c[5]),
                 need: nz(c[6]), correct: nz(c[7]), rtNeed: nz(c[8]), rtCorrect: nz(c[9]) });
+    } else if (key === "PQ") {
+      // 前の回までの答え（引き継ぎ）。先頭が回
+      const c = val.split(",");
+      const nz = v => (v === "" ? null : Number(v));
+      pqs.push({ round: nz(c[0]), idx: nz(c[1]), el: nz(c[2]), ratioNow: nz(c[3]), ratioEp: nz(c[4]), threshold: nz(c[5]), delay: nz(c[6]),
+                 need: nz(c[7]), correct: nz(c[8]), rtNeed: nz(c[9]), rtCorrect: nz(c[10]) });
+    } else if (key === "R1Data") {
+      // 第1回の0.2秒ごとの記録（引き継ぎ）。「経過ミリ秒:検出:比」を ; で区切ったもの
+      r1 = val.trim() === "" ? [] : val.trim().split(";").map(t => {
+        const [el, det, ratio] = t.split(":");
+        return { el: Number(el), det: Number(det), ratio: ratio === "" || ratio === undefined ? NaN : Number(ratio) };
+      });
     } else meta[key] = val.trim();
   }
-  return { meta, qs };
+  return { meta, qs, pqs, r1 };
 }
 // 前の回のCSVから、0.2秒ごとの記録（経過ミリ秒・検出・比）を読み込む（第1回の崩れ方を数え直すため）
 function parseRows(text) {
@@ -1155,6 +1281,14 @@ function buildCSV() {
   csv += "# Q_Columns,idx,elapsed_ms,ratio_at_warning,ratio_episode_median,threshold,delay_sec,need,correct,rt_need_ms,rt_correct_ms\n";
   csv += questions.map(q => "# Q," + [q.idx, q.el, num(q.ratioNow, 4), num(q.ratioEp, 4), q.threshold, q.delay,
     q.need ?? "", q.correct ?? "", q.rtNeed ?? "", q.rtCorrect ?? ""].join(",")).join("\n") + (questions.length ? "\n" : "");
+  // 次の回へ引き継ぐデータ（参加者は次の回でこのCSVを1つ選ぶだけで、第1回の記録とこれまでの答えが読み込まれる）
+  //   PQ：前の回までの答え（先頭が回）。この回の答えは上の Q の行
+  //   R1Data：第1回の0.2秒ごとの記録（経過ミリ秒:検出:比 を ; で区切る。比はCSV本体と同じ小数4桁）
+  csv += "# PQ_Columns,round,idx,elapsed_ms,ratio_at_warning,ratio_episode_median,threshold,delay_sec,need,correct,rt_need_ms,rt_correct_ms\n";
+  csv += prevQuestions.map(q => "# PQ," + [q.round ?? "", q.idx ?? "", q.el ?? "", num(q.ratioNow, 4), num(q.ratioEp, 4), q.threshold ?? "", q.delay ?? "",
+    q.need ?? "", q.correct ?? "", q.rtNeed ?? "", q.rtCorrect ?? ""].join(",")).join("\n") + (prevQuestions.length ? "\n" : "");
+  const r1src = CONFIG.round === 1 ? logs.map(r => ({ el: r.el, det: r.det, ratio: r.ratio })) : round1Rows;
+  csv += "# R1Data," + (r1src ? r1src.map(r => `${r.el}:${r.det}:${num(r.ratio, 4)}`).join(";") : "") + "\n";
   csv += "Timestamp,Elapsed_ms,Ear_Dist,Shoulder_Dist,Ratio,Detected,Is_Bad,Is_Warning_Active,Char_Count,Key_Count,Video_Index,Video_Time,Tab_Hidden,Video_State,Ask_Open\n";
   csv += logs.map(r => [r.ts, r.el, num(r.ear, 2), num(r.sh, 2), num(r.ratio, 4), r.det, r.bad, r.warn, r.chars, r.keys, r.vi, num(r.vt, 1), r.hid, r.vs, r.ask].join(",")).join("\n") + "\n";
   return csv;
