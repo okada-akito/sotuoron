@@ -214,12 +214,12 @@
     <ul class="plain">
       <li>記録するのは、耳と肩の位置から計算した数値、入力した文字数、入力した要約の文章です。</li>
       <li>カメラの映像は保存も送信もしません。計算はすべてあなたのパソコンの中で行われます。</li>
-      <li>データの整理のためにお名前を記録しますが、分析や発表では番号に置き換え、お名前は公表しません。</li>
+      <li>データの整理には番号（P01など）を使います。分析や発表でお名前を公表することはありません。</li>
     </ul>
 
     <h2>参加について</h2>
     <ul class="plain">
-      <li>参加は自由です。途中でやめたくなったら、いつでもブラウザを閉じてかまいません。その場合データは残りません。</li>
+      <li>参加は自由です。途中でやめたくなったら、いつでもやめてかまいません。その場合は実験者に連絡してください。</li>
       <li>記録したデータは卒業研究の分析にのみ使用します。</li>
     </ul>
 
@@ -316,10 +316,10 @@
     <ol class="steps"><li class="done">説明と同意</li><li class="done">準備</li><li class="done">基準姿勢</li><li class="done">作業</li><li class="now">データ送付</li></ol>
     <h1>おつかれさまでした</h1>
     <p>最後に、記録したデータをダウンロードして送ってください。</p>
-    <p>名前：<span class="pid" id="pid"></span>　／　<span id="cond-text"></span></p>
+    <p>番号：<span class="pid" id="pid"></span>　／　<span id="cond-text"></span></p>
     <div class="row"><button id="btn-download">データをダウンロードする</button></div>
     <div class="note" id="send-note">
-      ダウンロードしたファイル（<span id="fname"></span>）を<span id="send-to">実験の案内に書かれた送付先</span>に送ってください。件名にお名前を入れてください。
+      ダウンロードしたファイル（<span id="fname"></span>）を、<span id="send-to">Slackのダイレクトメッセージで岡田</span>に送ってください。メッセージには「番号 第○回」（例：P01 第1回）と書いてください。
     </div>
     <p class="muted">ファイルを送るまで、このページは閉じないでください。</p>
 
@@ -491,9 +491,8 @@ function syncStartFields() {
   document.getElementById("next-field").style.display = v === "next" ? "block" : "none";
   document.getElementById("start-info").textContent = v === "next" && startPlan ? startPlan.info : "";
   document.getElementById("btn-start").disabled = !v || (v === "next" && !startPlan);
-  setStartMsg("");
 }
-document.querySelectorAll('input[name="pround"]').forEach(r => r.addEventListener("change", syncStartFields));
+document.querySelectorAll('input[name="pround"]').forEach(r => r.addEventListener("change", () => { setStartMsg(""); syncStartFields(); }));
 document.getElementById("in-start-prev").addEventListener("change", async ev => {
   startPlan = null; setStartMsg("");
   const f = ev.target.files[0];
