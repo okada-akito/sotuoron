@@ -344,7 +344,7 @@
 <script>
 // ============================================================
 // 実験の設定（設定画面で選ぶ。URLの後ろにつけると初期値になる）
-//   例: index.html?name=岡田晃斗&round=2&group=A&delay=8.4&lock=1
+//   参加者：index.html（何もつけない）／実験者の設定画面：index.html?admin=1／回ごとの配布用：index.html?name=P01&round=2&group=A&delay=10&lock=1
 //   name : 名前
 //   round: 何回目か（1〜4）。第1回＝警告なし、第2〜4回＝警告あり（なし→あり→あり→あり）
 //          参加者の目に触れるところには「警告なし／あり」を出さず「第○回」とだけ出す
@@ -356,7 +356,7 @@
 //   v    : 動画を直接指定するとき（カンマ区切り。指定するとグループの動画の代わりに使う）
 //   to   : データの送付先（終了画面に表示）
 //   lock : 1 のとき設定画面を飛ばし、終了画面の「実験者用」も出さない（回ごとのURLを配る場合）
-//   p    : 1 のとき参加者用のはじめの画面を出す（全員同じURL。第2回以降は前の回のCSVを選ぶ）
+//   admin: 1 のとき実験者用の設定画面を出す（つけないときは参加者用のはじめの画面。全員同じURL）
 // ============================================================
 const params = new URLSearchParams(location.search);
 const ROUND_WARN = { 1: false, 2: true, 3: true, 4: true };    // なし→あり→あり→あり
@@ -475,11 +475,12 @@ document.getElementById("btn-settings").addEventListener("click", () => {
   show("s-consent");
 });
 
-// ---------- 0'. はじめの画面（参加者用：URLに ?p=1 をつける。全員同じURL） ----------
+// ---------- 0'. はじめの画面（参加者用。URLに何もつけずに開くとこの画面。全員同じURL） ----------
 //   第1回：番号とグループを入れる（閾値は全員共通の 1.09）。
 //   第2回以降：前の回のCSVを1つ選ぶ。そのCSVから、番号・グループ・次の回・閾値・秒数を読み取り、
 //              第1回の記録とこれまでの答え（CSVに引き継いで入っている）も読み込む。閾値と秒数は画面に出さない。
-const PMODE = params.get("p") === "1";
+// 実験者用の設定画面は ?admin=1 をつけたときだけ出す。lock=1 の配布用URL（練習用など）はこれまでどおり。
+const PMODE = params.get("admin") !== "1" && params.get("lock") !== "1";
 let startPlan = null;   // 第2回以降：前の回のCSVから読み取った、この回の設定
 function setStartMsg(text) {
   const m = document.getElementById("start-msg");
