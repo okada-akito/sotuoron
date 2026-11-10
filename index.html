@@ -380,8 +380,8 @@ const GROUPS = {
 //     質問1「この警告は 必要／不要」      → 秒数（警告までの待ち時間）を合わせる
 //     質問2「今の姿勢は 正しい／正しくない」→ 閾値（どこからを崩れとみなすか）を合わせる
 //   閾値と秒数は、回が終わってから決め直す（1回の中では変えない）。
-const INIT = { threshold: 1.08, delay: 10 };          // 第2回の初期値（全員共通）
-const TH = { min: 1.08, max: 1.15, step: 0.005 };     // 閾値の範囲。上限は「本人の好みに合わせすぎて崩れを見逃さない」ため
+const INIT = { threshold: 1.075, delay: 10 };          // 第2回の初期値（全員共通）
+const TH = { min: 1.075, max: 1.15, step: 0.005 };     // 閾値の範囲。上限は「本人の好みに合わせすぎて崩れを見逃さない」ため
 const DL = { min: 2, max: 30 };                       // 秒数の範囲（上限30秒＝ErgoAssistの一律30秒）
 // 秒数は「1回の作業で、役に立った警告の数 − じゃまだった警告の数（正味の利益）」が一番大きくなる秒数にする（ベイズ決定理論）。
 //   ① 何秒で鳴らすと「必要」と言われやすいか：ベイズ推定（QUEST と同じ考え方）。
@@ -402,7 +402,7 @@ const CONFIG = {
   warn: false,
   delay: parseFloat(params.get("delay") || ""),
   video: "",
-  threshold: parseFloat(params.get("th") || "1.08"),
+  threshold: parseFloat(params.get("th") || "1.075"),
   durationMin: parseFloat(params.get("dur") || "30"),
   videos: [],
   videoOverride: (params.get("v") || "").split(",").map(s => s.trim()).filter(Boolean),
@@ -476,7 +476,7 @@ document.getElementById("btn-settings").addEventListener("click", () => {
 });
 
 // ---------- 0'. はじめの画面（参加者用。URLに何もつけずに開くとこの画面。全員同じURL） ----------
-//   第1回：番号とグループを入れる（閾値は全員共通の 1.08）。
+//   第1回：番号とグループを入れる（閾値は全員共通の 1.075）。
 //   第2回以降：前の回のCSVを1つ選ぶ。そのCSVから、番号・グループ・次の回・閾値・秒数を読み取り、
 //              第1回の記録とこれまでの答え（CSVに引き継いで入っている）も読み込む。閾値と秒数は画面に出さない。
 // 実験者用の設定画面は ?admin=1 をつけたときだけ出す。lock=1 の配布用URL（練習用など）はこれまでどおり。
