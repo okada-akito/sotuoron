@@ -175,17 +175,18 @@
     </div>
     <div id="first-field" style="display:none">
       <div class="field">
-        <label for="in-pid">番号（説明会でお伝えした番号。例：P01）</label>
+        <label for="in-pid">番号（説明会でお伝えした番号。例：1）</label>
         <input type="text" id="in-pid" maxlength="10" style="font:inherit;width:8em;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);">
       </div>
       <div class="field">
-        <label>グループ（説明会でお伝えしたもの）</label>
+        <label>グループ（番号から自動で選ばれます）</label>
         <div class="choices">
           <label><input type="radio" name="pgroup" value="A" id="pgroup-A">A</label>
           <label><input type="radio" name="pgroup" value="B" id="pgroup-B">B</label>
           <label><input type="radio" name="pgroup" value="C" id="pgroup-C">C</label>
           <label><input type="radio" name="pgroup" value="D" id="pgroup-D">D</label>
         </div>
+        <p class="muted" id="pgroup-order"></p>
       </div>
     </div>
     <div id="next-field" style="display:none">
@@ -214,7 +215,7 @@
     <ul class="plain">
       <li>記録するのは、耳と肩の位置から計算した数値、入力した文字数、入力した要約の文章です。</li>
       <li>カメラの映像は保存も送信もしません。計算はすべてあなたのパソコンの中で行われます。</li>
-      <li>データの整理には番号（P01など）を使います。分析や発表でお名前を公表することはありません。</li>
+      <li>データの整理には番号（1、2…）を使います。分析や発表でお名前を公表することはありません。</li>
     </ul>
 
     <h2>参加について</h2>
@@ -319,7 +320,7 @@
     <p>番号：<span class="pid" id="pid"></span>　／　<span id="cond-text"></span></p>
     <div class="row"><button id="btn-download">データをダウンロードする</button></div>
     <div class="note" id="send-note">
-      ダウンロードしたファイル（<span id="fname"></span>）を、<span id="send-to">Slackのダイレクトメッセージで岡田</span>に送ってください。メッセージには「番号 第○回」（例：P01 第1回）と書いてください。
+      ダウンロードしたファイル（<span id="fname"></span>）を、<span id="send-to">Slackのダイレクトメッセージで岡田</span>に送ってください。メッセージには「番号 第○回」（例：1 第1回）と書いてください。
     </div>
     <p class="muted">ファイルを送るまで、このページは閉じないでください。</p>
 
@@ -344,7 +345,7 @@
 <script>
 // ============================================================
 // 実験の設定（設定画面で選ぶ。URLの後ろにつけると初期値になる）
-//   参加者：index.html（何もつけない）／実験者の設定画面：index.html?admin=1／回ごとの配布用：index.html?name=P01&round=2&group=A&delay=10&lock=1
+//   参加者：index.html（何もつけない）／実験者の設定画面：index.html?admin=1／回ごとの配布用：index.html?name=1&round=2&group=A&delay=10&lock=1
 //   name : 名前
 //   round: 何回目か（1〜4）。第1回＝警告なし、第2〜4回＝警告あり（なし→あり→あり→あり）
 //          参加者の目に触れるところには「警告なし／あり」を出さず「第○回」とだけ出す
@@ -387,7 +388,7 @@ const DL = { min: 2, max: 30 };                       // 秒数の範囲（上�
 //   ① 何秒で鳴らすと「必要」と言われやすいか：ベイズ推定（QUEST と同じ考え方）。
 //      「必要」と答える確率は秒数が長いほど高くなるS字の曲線と考え、その人の境目（50%になる秒数）を全部の答えから推定する。
 //      sig：曲線の傾き（時間の感じ方は割合で変わるので、秒数の対数で考える）、lapse：押し間違いの割合
-//   ② 何秒待つと何回くらい自分で直るか：第1回（警告なし）の崩れが、何秒以上続いたか（次の回の閾値で数え直す）。
+//   ② 何秒待つと何回くらい自分で直るか：第1回（警告なし）の崩れの長さ（次の回の閾値で数え直す）を対数正規分布に当てはめて出す。
 const BAYES = { sig: 0.3, lapse: 0.05, grid: 400 };
 const DL_STEP = 0.1;                                   // 秒数の候補の刻み
 const MIN_ANS = 3;                                     // 答えがこれより少なければ変えない
@@ -476,7 +477,7 @@ document.getElementById("btn-settings").addEventListener("click", () => {
 });
 
 // ---------- 0'. はじめの画面（参加者用。URLに何もつけずに開くとこの画面。全員同じURL） ----------
-//   第1回：番号とグループを入れる（閾値は全員共通の 1.075）。
+//   第1回：番号を入れる（グループは番号から自動で決まる。閾値は全員共通の 1.075）。
 //   第2回以降：前の回のCSVを1つ選ぶ。そのCSVから、番号・グループ・次の回・閾値・秒数を読み取り、
 //              第1回の記録とこれまでの答え（CSVに引き継いで入っている）も読み込む。閾値と秒数は画面に出さない。
 // 実験者用の設定画面は ?admin=1 をつけたときだけ出す。lock=1 の配布用URL（練習用など）はこれまでどおり。
@@ -519,18 +520,36 @@ document.getElementById("in-start-prev").addEventListener("change", async ev => 
       if (!(th > 1 && th <= 2) || !(delay > 0 && delay <= 600)) throw new Error("前の回のデータが足りないため、次の回の設定を決められません。実験者に連絡してください。");
       if (!r1) throw new Error("第1回の記録が見つかりません。実験者に連絡してください。");
       startPlan = { name, group, round: prevRound + 1, th, delay, r1, allQs,
-                    info: `${name} さん　次は 第${prevRound + 1}回 です。よければ「始める」を押してください。` };
+                    info: `番号 ${name}　次は 第${prevRound + 1}回 です。番号が合っていれば「始める」を押してください。` };
     } catch (e) { setStartMsg(e.message); }
   }
   syncStartFields();
 });
+// 番号は数字だけにそろえる（1・01・Ｐ１・p1 → 1）。1〜99 以外なら null
+function normPid(s) {
+  const t = String(s || "").normalize("NFKC").trim().toUpperCase().replace(/\s+/g, "");
+  const m = t.match(/^P?(\d{1,2})$/);
+  return m && Number(m[1]) >= 1 ? String(Number(m[1])) : null;
+}
+// グループは番号の順に A→B→C→D→A…（1→A、2→B、3→C、4→D、5→A）
+const groupOfPid = pid => "ABCD"[(Number(pid) - 1) % 4];
+function showGroupOrder() {
+  const g = parseGroup(checkedValue("pgroup"));
+  document.getElementById("pgroup-order").textContent = g ? `グループ${g}の動画の順番：` + GROUPS[g].map(k => VIDEOS[k].label).join(" → ") : "";
+}
+document.getElementById("in-pid").addEventListener("input", () => {
+  const pid = normPid(document.getElementById("in-pid").value);
+  if (pid) { document.getElementById("pgroup-" + groupOfPid(pid)).checked = true; }
+  showGroupOrder();
+});
+document.querySelectorAll('input[name="pgroup"]').forEach(r => r.addEventListener("change", showGroupOrder));
 document.getElementById("btn-start").addEventListener("click", () => {
   const v = checkedValue("pround");
   if (v === "first") {
-    const name = cleanName(document.getElementById("in-pid").value).toUpperCase();
+    const name = normPid(document.getElementById("in-pid").value);
     const group = parseGroup(checkedValue("pgroup"));
     const errors = [];
-    if (!name) errors.push("番号を入力してください。");
+    if (!name) errors.push("番号は 1 のように数字で入れてください。");
     if (!group) errors.push("グループを選んでください。");
     if (errors.length) { setStartMsg(errors.join(" ")); return; }
     PID = name; CONFIG.round = 1; CONFIG.group = group; CONFIG.threshold = INIT.threshold; CONFIG.delay = NaN;
@@ -920,10 +939,10 @@ function nextThreshold(allQs, cur) {
 // 秒数：
 //   ① これまでの全部の回の答えのうち「正しくない姿勢」と答えた警告（そのときの秒数と、必要／不要）から、
 //      その人の境目の見込み（候補ごとの重み）を計算する。「正しい姿勢」と答えた警告は閾値の問題なので使わない。
-//   ② 第1回（警告なし）の記録を、次の回の閾値で数え直し、崩れがそれぞれ何秒まで続いたかを出す。
+//   ② 第1回（警告なし）の記録を、次の回の閾値で数え直し、崩れがそれぞれ何秒まで続いたかを出し、対数正規分布に当てはめる。
 //   2〜30秒の各秒数 d について、
-//      役に立った警告の見込み ＝ （d秒以上続いた崩れの数）×（d秒で「必要」と言われる見込み）
-//      じゃまだった警告の見込み ＝ （d秒以上続いた崩れの数）×（d秒で「不要」と言われる見込み）
+//      役に立った警告の見込み ＝ （d秒以上続く崩れの数：曲線から）×（d秒で「必要」と言われる見込み）
+//      じゃまだった警告の見込み ＝ （d秒以上続く崩れの数：曲線から）×（d秒で「不要」と言われる見込み）
 //   その差（正味の利益）が一番大きい d を次の回の秒数にする（同じなら短いほう）。
 //   どの秒数でも差がプラスにならない（じゃまな警告のほうが多い）ときは、上限の30秒にする。
 const pNeed = (d, th) => BAYES.lapse + (1 - 2 * BAYES.lapse) / (1 + Math.exp(-(Math.log(d) - Math.log(th)) / BAYES.sig));
@@ -956,6 +975,21 @@ function reachTimes(rows, th, gapMs) {
   if (since !== null) out.push(reach);
   return out;
 }
+// 正規分布の累積確率（Abramowitz & Stegun 7.1.26 の近似。Python と同じ式で計算して結果をそろえる）
+function normCdf(z) {
+  const x = Math.abs(z) / Math.SQRT2, t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return z >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
+}
+// 第1回の崩れの長さを、対数正規分布（崩れが続く時間によく使われる形）に当てはめる。
+// 1つずつ数えると、たまたま1回だけあった長い崩れに秒数が引っぱられるため、なめらかな曲線にしてから使う。
+// 曲線の形（対数の平均と標準偏差）は第1回のデータから決まる。0.2秒（記録の間隔）より短い崩れは0.2秒とみなす。
+function fitLogNormal(reach) {
+  const ls = reach.map(x => Math.log(Math.max(x, 0.2)));
+  const n = ls.length, mu = n ? ls.reduce((a, c) => a + c, 0) / n : 0;
+  const sd = n >= 2 ? Math.sqrt(ls.reduce((a, c) => a + (c - mu) * (c - mu), 0) / (n - 1)) : 0;
+  return { n, mu, sd };
+}
 function nextDelay(allQs, cur, r1rows, nextTh) {
   const use = allQs.filter(q => q.correct === 0 && q.need !== null && Number.isFinite(q.delay));
   const nNeed = use.filter(q => q.need === 1).length, nNo = use.length - nNeed;
@@ -967,12 +1001,16 @@ function nextDelay(allQs, cur, r1rows, nextTh) {
   if (!r1rows) return { ...out, value: null, note: "第1回のCSVを選ぶと秒数を計算します" };
   const reach = reachTimes(r1rows, nextTh, CONFIG.gapMs);
   out.nEp = reach.length;
+  const fit = fitLogNormal(reach);
+  if (fit.n < 3 || !(fit.sd > 0)) return { ...out, value: cur, note: `第1回の崩れが少ないため（${fit.n}回）変えない` };
+  out.fitMedian = Math.round(Math.exp(fit.mu) * 100) / 100; out.fitSd = Math.round(fit.sd * 1000) / 1000;
+  const nAt = d => fit.n * (1 - normCdf((Math.log(d) - fit.mu) / fit.sd));   // d秒以上続く崩れの数（曲線から）
   let best = null;
   const steps = Math.round((DL.max - DL.min) / DL_STEP);
   for (let k = 0; k <= steps; k++) {
     const d = Math.round((DL.min + k * DL_STEP) * 10) / 10;
     let ef = 0; for (let i = 0; i < post.grid.length; i++) ef += post.w[i] * pNeed(d, post.grid[i]);
-    const nd = reach.filter(x => x >= d).length;
+    const nd = nAt(d);
     const u = nd * (2 * ef - 1);
     if (!best || u > best.u) best = { d, u, good: nd * ef, bad: nd * (1 - ef) };
   }
@@ -1254,6 +1292,8 @@ function buildCSV() {
     ["NextDelayExpGood", rec && rec.nextDl.expGood != null ? rec.nextDl.expGood : ""],   // 次の回の見込み：役に立つ警告の数（第1回の崩れ方から）
     ["NextDelayExpBad", rec && rec.nextDl.expBad != null ? rec.nextDl.expBad : ""],     // 次の回の見込み：じゃまな警告の数
     ["Round1EpisodesUsed", rec && rec.nextDl.nEp != null ? rec.nextDl.nEp : ""],
+    ["Round1FitMedianSec", rec && rec.nextDl.fitMedian != null ? rec.nextDl.fitMedian : ""],   // 第1回の崩れの長さを当てはめた曲線の中央値（秒）
+    ["Round1FitLogSd", rec && rec.nextDl.fitSd != null ? rec.nextDl.fitSd : ""],               // 同じ曲線の、対数の標準偏差
     ["NextDelayNote", rec ? clean(rec.nextDl.note || "") : ""],
     ["PrevAnswersUsed", prevQuestions.length],
     ["PrevSource", prevSource],   // 前の回のデータの読み込み元（browser＝このパソコンに保存された記録、csv＝選んだCSV）
