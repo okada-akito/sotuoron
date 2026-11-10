@@ -277,6 +277,40 @@
   </div>
 </section>
 
+<!-- ================= 姿勢のチェック（実験者用：URLに ?check=1） ================= -->
+<section id="s-check" class="screen">
+  <div class="wrap">
+    <h1>姿勢のチェック</h1>
+    <p class="muted">閾値が合っているかを確かめるための画面です（実験のデータには入りません）。下のボタンで、それぞれの姿勢を30秒ずつ測ります。</p>
+    <div style="display:flex;gap:24px;align-items:baseline;flex-wrap:wrap">
+      <p style="font-size:3rem;font-weight:700;margin:0;font-variant-numeric:tabular-nums" id="chk-r">―</p>
+      <p class="muted" id="chk-state" style="margin:0"></p>
+    </div>
+    <div style="position:relative;height:28px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0 4px">
+      <div id="chk-bar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--teal)"></div>
+      <div id="chk-line" style="position:absolute;top:0;bottom:0;width:3px;background:#B85F0E"></div>
+    </div>
+    <p class="muted" style="display:flex;justify-content:space-between;margin:0"><span>0.95</span><span>1.05</span><span>1.15</span><span>1.25</span></p>
+    <div class="field" style="margin-top:16px">
+      <label for="chk-th">確かめる閾値</label>
+      <input type="number" id="chk-th" step="0.005" min="1" max="1.3" style="font:inherit;width:7em;padding:6px 8px">
+    </div>
+    <div class="row" style="flex-wrap:wrap;gap:8px">
+      <button class="secondary" data-phase="良い姿勢">良い姿勢で30秒</button>
+      <button class="secondary" data-phase="ふだんの作業の姿勢">ふだんの作業の姿勢で30秒</button>
+      <button class="secondary" data-phase="少し前かがみ">少し前かがみで30秒</button>
+      <button class="secondary" data-phase="かなり前かがみ">かなり前かがみで30秒</button>
+    </div>
+    <p class="pid" id="chk-run" style="margin-top:20px"></p>
+    <table id="chk-table" style="width:100%;border-collapse:collapse;margin-top:8px;font-variant-numeric:tabular-nums">
+      <thead><tr><th style="text-align:left">姿勢</th><th>閾値</th><th>値の中央値</th><th>最大</th><th>閾値を超えた時間</th><th>続けて超えた最長</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted">見方：「良い姿勢」「ふだんの作業の姿勢」で閾値を超えた時間がほとんどなく、「続けて超えた最長」が10秒未満なら、その姿勢で警告は出ません。「前かがみ」で続けて10秒以上超えれば、警告が出ます。</p>
+    <div class="row"><button id="chk-dl" class="secondary">結果をダウンロード</button></div>
+  </div>
+</section>
+
 <!-- ================= 4. 作業 ================= -->
 <section id="s-task" class="screen">
   <div class="task-bar"><div class="inner">
@@ -381,8 +415,8 @@ const GROUPS = {
 //     質問1「この警告は 必要／不要」      → 秒数（警告までの待ち時間）を合わせる
 //     質問2「今の姿勢は 正しい／正しくない」→ 閾値（どこからを崩れとみなすか）を合わせる
 //   閾値と秒数は、回が終わってから決め直す（1回の中では変えない）。
-const INIT = { threshold: 1.075, delay: 10 };          // 第2回の初期値（全員共通）
-const TH = { min: 1.075, max: 1.15, step: 0.005 };     // 閾値の範囲。上限は「本人の好みに合わせすぎて崩れを見逃さない」ため
+const INIT = { threshold: 1.055, delay: 10 };          // 第2回の初期値（全員共通）
+const TH = { min: 1.055, max: 1.15, step: 0.005 };     // 閾値の範囲。上限は「本人の好みに合わせすぎて崩れを見逃さない」ため
 const DL = { min: 2, max: 30 };                       // 秒数の範囲（上限30秒＝ErgoAssistの一律30秒）
 // 秒数は「1回の作業で、役に立った警告の数 − じゃまだった警告の数（正味の利益）」が一番大きくなる秒数にする（ベイズ決定理論）。
 //   ① 何秒で鳴らすと「必要」と言われやすいか：ベイズ推定（QUEST と同じ考え方）。
@@ -403,7 +437,7 @@ const CONFIG = {
   warn: false,
   delay: parseFloat(params.get("delay") || ""),
   video: "",
-  threshold: parseFloat(params.get("th") || "1.075"),
+  threshold: parseFloat(params.get("th") || "1.055"),
   durationMin: parseFloat(params.get("dur") || "30"),
   videos: [],
   videoOverride: (params.get("v") || "").split(",").map(s => s.trim()).filter(Boolean),
@@ -477,11 +511,12 @@ document.getElementById("btn-settings").addEventListener("click", () => {
 });
 
 // ---------- 0'. はじめの画面（参加者用。URLに何もつけずに開くとこの画面。全員同じURL） ----------
-//   第1回：番号を入れる（グループは番号から自動で決まる。閾値は全員共通の 1.075）。
+//   第1回：番号を入れる（グループは番号から自動で決まる。閾値は全員共通の 1.055）。
 //   第2回以降：前の回のCSVを1つ選ぶ。そのCSVから、番号・グループ・次の回・閾値・秒数を読み取り、
 //              第1回の記録とこれまでの答え（CSVに引き継いで入っている）も読み込む。閾値と秒数は画面に出さない。
 // 実験者用の設定画面は ?admin=1 をつけたときだけ出す。lock=1 の配布用URL（練習用など）はこれまでどおり。
-const PMODE = params.get("admin") !== "1" && params.get("lock") !== "1";
+const CHECK = params.get("check") === "1";   // 姿勢のチェック（閾値が合っているかを確かめる。実験のデータには入らない）
+const PMODE = !CHECK && params.get("admin") !== "1" && params.get("lock") !== "1";
 let startPlan = null;   // 第2回以降：前の回のCSVから読み取った、この回の設定
 function setStartMsg(text) {
   const m = document.getElementById("start-msg");
@@ -564,6 +599,11 @@ document.getElementById("btn-start").addEventListener("click", () => {
 if (PMODE) {
   document.getElementById("rec-box").style.display = "none";
   show("s-start");
+}
+if (CHECK) {
+  PID = "チェック"; CONFIG.round = 1; CONFIG.group = "A";
+  document.getElementById("btn-to-task").textContent = "チェックを始める";
+  show("s-setup");
 }
 
 if (params.get("lock") === "1") {
@@ -685,7 +725,7 @@ document.getElementById("btn-calib").addEventListener("click", () => {
       }
       const e = median(ears), s = median(shs);
       baseline = { ear: e, sh: s, ratio: e / s, n: ears.length };
-      msg.textContent = "登録しました。この姿勢が基準になります。準備ができたら「作業を始める」を押してください。";
+      msg.textContent = "登録しました。この姿勢が基準になります。準備ができたら「" + document.getElementById("btn-to-task").textContent + "」を押してください。";
       btn.textContent = "登録し直す";
       document.getElementById("btn-to-task").disabled = false;
     }
@@ -765,10 +805,71 @@ let ask = null;                  // 表示中の質問
 
 document.getElementById("btn-to-task").addEventListener("click", () => {
   if (!baseline) return;
+  if (CHECK) { startCheck(); return; }
   // 作業中はカメラ映像を見せない（姿勢を意識させないため）
   document.getElementById("cam-box").classList.add("cam-hidden");
   show("s-task");
   startTask();
+});
+
+// ---------- 姿勢のチェック ----------
+let chkTimer = null, chkPhase = null, chkRows = [];
+function startCheck() {
+  document.getElementById("chk-th").value = CONFIG.threshold;
+  show("s-check");
+  clearInterval(chkTimer);
+  chkTimer = setInterval(() => {
+    const th = parseFloat(document.getElementById("chk-th").value) || CONFIG.threshold;
+    const fresh = poseFresh();
+    const r = fresh ? (latest.ear / latest.sh) / baseline.ratio : NaN;
+    const pos = v => Math.max(0, Math.min(100, (v - 0.95) / 0.30 * 100));
+    document.getElementById("chk-r").textContent = Number.isFinite(r) ? r.toFixed(3) : "―";
+    document.getElementById("chk-state").textContent = !fresh ? "顔と肩が見つかりません" : r > th ? "閾値を超えています（崩れ）" : "閾値以下（崩れではない）";
+    document.getElementById("chk-bar").style.width = (Number.isFinite(r) ? pos(r) : 0) + "%";
+    document.getElementById("chk-line").style.left = pos(th) + "%";
+    if (chkPhase) {
+      chkPhase.vals.push({ t: Date.now(), r });
+      const left = Math.ceil(30 - (Date.now() - chkPhase.t0) / 1000);
+      document.getElementById("chk-run").textContent = `「${chkPhase.name}」を測っています…あと${left}秒`;
+      if (left <= 0) finishPhase(th);
+    }
+  }, CONFIG.sampleMs);
+}
+function finishPhase(th) {
+  const v = chkPhase.vals.filter(x => Number.isFinite(x.r));
+  const rs = v.map(x => x.r);
+  // 作業中と同じ決まり（1秒未満の途切れは同じ崩れ）で、続けて閾値を超えた最長の時間
+  let since = null, last = null, longest = 0;
+  v.forEach(x => {
+    if (x.r > th) { if (since === null) since = x.t; last = x.t; longest = Math.max(longest, (x.t - since) / 1000); }
+    else if (since !== null && x.t - last > CONFIG.gapMs) since = null;
+  });
+  const over = rs.length ? rs.filter(r => r > th).length / rs.length : NaN;
+  const row = { name: chkPhase.name, th, med: rs.length ? median(rs) : NaN, max: rs.length ? Math.max(...rs) : NaN, over, longest };
+  chkRows.push(row);
+  const tr = document.createElement("tr");
+  [row.name, th.toFixed(3), row.med.toFixed(3), row.max.toFixed(3), Math.round(over * 100) + "%", row.longest.toFixed(1) + "秒"].forEach((t, i) => {
+    const td = document.createElement("td"); td.textContent = t; td.style.borderTop = "1px solid var(--line)"; td.style.padding = "4px";
+    if (i) td.style.textAlign = "center"; tr.appendChild(td);
+  });
+  document.querySelector("#chk-table tbody").appendChild(tr);
+  document.getElementById("chk-run").textContent = `「${chkPhase.name}」を測りました。`;
+  chkPhase = null;
+  document.querySelectorAll("[data-phase]").forEach(b => (b.disabled = false));
+}
+document.querySelectorAll("[data-phase]").forEach(btn => btn.addEventListener("click", () => {
+  if (chkPhase) return;
+  chkPhase = { name: btn.dataset.phase, t0: Date.now(), vals: [] };
+  document.querySelectorAll("[data-phase]").forEach(b => (b.disabled = true));
+}));
+document.getElementById("chk-dl").addEventListener("click", () => {
+  const lines = ["姿勢,閾値,値の中央値,最大,閾値を超えた割合,続けて超えた最長（秒）"].concat(
+    chkRows.map(r => [r.name, r.th.toFixed(3), r.med.toFixed(3), r.max.toFixed(3), r.over.toFixed(3), r.longest.toFixed(1)].join(",")));
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  const d = new Date(), p2 = n => String(n).padStart(2, "0");
+  a.download = `posture_check_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}.csv`;
+  a.click();
 });
 
 function startTask() {
