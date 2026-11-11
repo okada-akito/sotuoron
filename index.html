@@ -306,7 +306,7 @@
       <thead><tr><th style="text-align:left">姿勢</th><th>閾値</th><th>値の中央値</th><th>最大</th><th>閾値を超えた時間</th><th>続けて超えた最長</th></tr></thead>
       <tbody></tbody>
     </table>
-    <p class="muted">見方：「良い姿勢」「ふだんの作業の姿勢」で閾値を超えた時間がほとんどなく、「続けて超えた最長」が10秒未満なら、その姿勢で警告は出ません。「前かがみ」で続けて10秒以上超えれば、警告が出ます。</p>
+    <p class="muted">見方：「良い姿勢」「ふだんの作業の姿勢」で閾値を超えた時間がほとんどなく、「続けて超えた最長」が7秒未満なら、その姿勢で警告は出ません（第2回の秒数は7秒）。「前かがみ」で続けて7秒以上超えれば、警告が出ます。</p>
     <div class="row"><button id="chk-dl" class="secondary">結果をダウンロード</button></div>
   </div>
 </section>
@@ -379,7 +379,7 @@
 <script>
 // ============================================================
 // 実験の設定（設定画面で選ぶ。URLの後ろにつけると初期値になる）
-//   参加者：index.html（何もつけない）／実験者の設定画面：index.html?admin=1／回ごとの配布用：index.html?name=1&round=2&group=A&delay=10&lock=1
+//   参加者：index.html（何もつけない）／実験者の設定画面：index.html?admin=1／回ごとの配布用：index.html?name=1&round=2&group=A&delay=7&lock=1
 //   name : 名前
 //   round: 何回目か（1〜4）。第1回＝警告なし、第2〜4回＝警告あり（なし→あり→あり→あり）
 //          参加者の目に触れるところには「警告なし／あり」を出さず「第○回」とだけ出す
@@ -415,9 +415,10 @@ const GROUPS = {
 //     質問1「この警告は 必要／不要」      → 秒数（警告までの待ち時間）を合わせる
 //     質問2「今の姿勢は 正しい／正しくない」→ 閾値（どこからを崩れとみなすか）を合わせる
 //   閾値と秒数は、回が終わってから決め直す（1回の中では変えない）。
-const INIT = { threshold: 1.04, delay: 10 };          // 第2回の初期値（全員共通）
+const INIT = { threshold: 1.04, delay: 7 };          // 第2回の初期値（全員共通）
 const TH = { min: 1.04, max: 1.15, step: 0.005 };     // 閾値の範囲。上限は「本人の好みに合わせすぎて崩れを見逃さない」ため
-const DL = { min: 2, max: 30 };                       // 秒数の範囲（上限30秒＝ErgoAssistの一律30秒）
+const DL = { min: 2, max: 30 };                       // 境目θを探す範囲（上限30秒＝ErgoAssistの一律30秒）
+const DL_PICK = { min: 3, max: 30 };                  // 実際に使う秒数の範囲（警告が多くなりすぎないよう下限は3秒）
 // 秒数は「1回の作業で、役に立った警告の数 − じゃまだった警告の数（正味の利益）」が一番大きくなる秒数にする（ベイズ決定理論）。
 //   ① 何秒で鳴らすと「必要」と言われやすいか：ベイズ推定（QUEST と同じ考え方）。
 //      「必要」と答える確率は秒数が長いほど高くなるS字の曲線と考え、その人の境目（50%になる秒数）を全部の答えから推定する。
@@ -444,6 +445,7 @@ const CONFIG = {
   sendTo: params.get("to") || "",
   sampleMs: 200,          // 記録の間隔（0.2秒）
   gapMs: 1000,            // これより短い途切れは同じ崩れとみなす（personal_delay.py の --gap と同じ）
+  cooldownMs: 30000,      // 警告を出したあと、次の警告まで最低この時間をあける（30秒）
   visMin: 0.5,            // 耳・肩の検出の信頼度の下限
   staleMs: 500            // これより古い検出結果は「未検出」扱い
 };
@@ -798,7 +800,7 @@ summary.addEventListener("keydown", () => { keyCount++; });
 
 let logs = [];
 let startMs = null, sampler = null, clock = null, running = false;
-let badSince = null, lastBadAt = 0, warningActive = false, warnCount = 0;
+let badSince = null, lastBadAt = 0, warningActive = false, warnCount = 0, lastWarnAt = -Infinity;
 let episodeRatios = [];          // いま続いている崩れの間の Ratio（警告時の姿勢の値に使う）
 let questions = [];              // 警告ごとの質問と答え
 let ask = null;                  // 表示中の質問
@@ -929,8 +931,8 @@ function sample() {
   }
   if (CONFIG.warn) {
     if (badSince !== null) {
-      if ((now - badSince) / 1000 >= CONFIG.delay && !warningActive) {
-        warningActive = true; warnCount++;
+      if ((now - badSince) / 1000 >= CONFIG.delay && !warningActive && now - lastWarnAt >= CONFIG.cooldownMs) {
+        warningActive = true; warnCount++; lastWarnAt = now;
         document.getElementById("warn-badge").classList.add("show");
         if ("speechSynthesis" in window) {
           const u = new SpeechSynthesisUtterance("姿勢を正してください");
@@ -1107,9 +1109,9 @@ function nextDelay(allQs, cur, r1rows, nextTh) {
   out.fitMedian = Math.round(Math.exp(fit.mu) * 100) / 100; out.fitSd = Math.round(fit.sd * 1000) / 1000;
   const nAt = d => fit.n * (1 - normCdf((Math.log(d) - fit.mu) / fit.sd));   // d秒以上続く崩れの数（曲線から）
   let best = null;
-  const steps = Math.round((DL.max - DL.min) / DL_STEP);
+  const steps = Math.round((DL_PICK.max - DL_PICK.min) / DL_STEP);
   for (let k = 0; k <= steps; k++) {
-    const d = Math.round((DL.min + k * DL_STEP) * 10) / 10;
+    const d = Math.round((DL_PICK.min + k * DL_STEP) * 10) / 10;
     let ef = 0; for (let i = 0; i < post.grid.length; i++) ef += post.w[i] * pNeed(d, post.grid[i]);
     const nd = nAt(d);
     const u = nd * (2 * ef - 1);
@@ -1405,6 +1407,7 @@ function buildCSV() {
     ["BaselineRatio", baseline.ratio.toFixed(4)],
     ["SampleMs", CONFIG.sampleMs],
     ["GapMs", CONFIG.gapMs],
+    ["WarnCooldownSec", CONFIG.cooldownMs / 1000],
     ["PlannedMin", CONFIG.durationMin],
     ["QuitEarly", quitEarly ? 1 : 0],
     ["WarnCount", warnCount],
